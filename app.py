@@ -219,6 +219,22 @@ with st.sidebar:
             f'border-radius:6px;color:#d4af37;font-weight:700">📋 {n} character{"s" if n!=1 else ""}</div>',
             unsafe_allow_html=True)
 
+        # Download current roster as CSV
+        csv_bytes = st.session_state.characters_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇ Download roster CSV",
+            data=csv_bytes,
+            file_name="genshin_data_export.csv",
+            mime="text/csv",
+            use_container_width=True,
+            disabled=st.session_state.opt_running,
+            help=(
+                "Saves all loaded characters to a CSV you can re-upload later. "
+                "To update a character's stats, display them in-game and click ＋ Merge — "
+                "their row is automatically replaced with the fresh data."
+            ),
+        )
+
     st.markdown("---")
 
     # ── 2. Configure ──────────────────────────────────────────────────────
