@@ -164,7 +164,7 @@ def _random_token():
     if random.random() < 0.5:
         return random.randrange(4) * TOTAL_COMMANDS + random.randrange(NUM_SIMPLE)
     cname, num_var, _ = random.choice(COMPLEX_COMMANDS)
-    base = COMPLEX_OFFSET + sum(n for n, cnt, g in COMPLEX_COMMANDS if n < cname)
+    base = COMPLEX_OFFSET + sum(cnt for n, cnt, g in COMPLEX_COMMANDS if n < cname)
     return random.randrange(4) * TOTAL_COMMANDS + base + random.randrange(num_var)
 
 
