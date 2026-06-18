@@ -326,6 +326,11 @@ with st.sidebar:
 
             fp = st.session_state.frozen_params
 
+            # Capture as plain Python objects BEFORE thread starts.
+            # st.session_state is NOT accessible from background threads.
+            _df_snapshot = st.session_state.characters_df.copy()
+            _stop_flag   = st.session_state.stop_flag
+
             def _worker():
                 try:
                     # Download GCSim (cached after first run)
@@ -341,7 +346,7 @@ with st.sidebar:
                         from optimizer_rotation import run_optimizer
 
                     result = run_optimizer(
-                        df=st.session_state.characters_df,
+                        df=_df_snapshot,
                         lock_chars=fp["locked_gcsim"],
                         gcsim_bin=gcsim_path,
                         sim_duration=fp["sim_duration"],
@@ -352,7 +357,7 @@ with st.sidebar:
                         min_character_level=fp["min_char_level"],
                         traveler_default=fp["traveler_default"],
                         pareto=fp["pareto_on"],
-                        stop_flag=st.session_state.stop_flag,
+                        stop_flag=_stop_flag,
                         progress_callback=_cb,
                     )
                     result_q.put(("ok", result))
