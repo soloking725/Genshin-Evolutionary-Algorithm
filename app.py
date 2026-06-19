@@ -665,13 +665,15 @@ with st.sidebar:
                     if fp["abyss_mode"]:
                         progress_q.put(("status", "running", "Optimizing Team 1 (first half)…"))
                         result1 = _run(label="Team 1",
-                                            lock_override=fp["locked_gcsim_t1"] or fp["locked_gcsim"])
+                                            lock_override=fp["locked_gcsim_t1"] or fp["locked_gcsim"],
+                                            extra_ban=fp["locked_gcsim_t2"] )
                         best_cfg1, best_obj1, summary1, configs1, warnings1 = result1
                         team1_chars = summary1[0]["team"] if summary1 else []
                         progress_q.put(("status", "running",
                             f"Team 1 done ({', '.join(team1_chars)}). Optimizing Team 2…"))
                         # Team 2: ban team1 chars + user bans; use T2-specific locks
-                        ban2 = list(fp["banned_gcsim"]) + team1_chars
+                        # Ban Team 1 locks AND Team 1's chosen characters from Team 2
+                        ban2 = list(fp["banned_gcsim"]) + team1_chars + fp["locked_gcsim_t1"]   # <-- add locked_gcsim_t1
                         from optimizer_pareto import run_optimizer as _run_pareto_t2
                         from optimizer_rotation import run_optimizer as _run_rot_t2
                         _run2_fn = _run_pareto_t2 if "Preset" in fp["mode"] else _run_rot_t2
