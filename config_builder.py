@@ -228,6 +228,7 @@ def build_character_configs(
     min_character_level: int = 50,
     traveler_override: dict | None = None,
     traveler_default: str = "anemo",
+    start_energy: int = 100,
 ) -> tuple[dict, list, list]:
     """
     Build GCSim character configs from a DataFrame.
@@ -273,7 +274,7 @@ def build_character_configs(
 
         lines = [
             f"{gcsim_name} char lvl={level}/90 cons={cons} "
-            f"talent={na},{skill},{burst} +params=[start_energy=100];"
+            f"talent={na},{skill},{burst} +params=[start_energy={start_energy}];"
         ]
 
         # Weapon
