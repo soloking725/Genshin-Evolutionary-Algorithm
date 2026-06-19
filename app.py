@@ -412,7 +412,7 @@ with st.sidebar:
 
         mode = st.radio(
             "Optimizer mode",
-            ["Preset Rotations (faster)", "Evolve Rotations (powerful)"],
+            ["Preset Rotations (faster)", "Evolve Rotations"],
             disabled=st.session_state.opt_running,
         )
 
@@ -718,7 +718,7 @@ st.markdown("""
     ⚔️ Genshin Team Optimizer
   </h1>
   <p style="color:#9a96b0;margin:8px 0 0;font-size:0.9rem">
-    Finds your <em>actual</em> strongest team from your roster — no guessing, just math.
+    Finds your strongest team from your roster.
   </p>
 </div>
 """, unsafe_allow_html=True)
