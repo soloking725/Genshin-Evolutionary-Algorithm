@@ -542,9 +542,17 @@ with st.sidebar:
 
         if run_clicked and not st.session_state.opt_running:
             # Block if lock-in and lock-out conflict
-            _conflicts = [c for c in lock_chars if c in ban_chars]
+            # Block if any locked character is also banned
+            if abyss_mode_early:
+                all_locked = lock_t1 + lock_t2
+            else:
+                all_locked = lock_chars
+
+            _conflicts = [c for c in all_locked if c in ban_chars]
             if _conflicts:
-                st.error(f"Remove {', '.join(_conflicts)} from either Lock IN or Lock OUT before running.")
+                st.error(
+                    f"Remove {', '.join(_conflicts)} from either Lock IN (or Team locks) or Lock OUT before running."
+                )
                 st.stop()
 
             # ── Resolve locked char names ──────────────────────────────────
