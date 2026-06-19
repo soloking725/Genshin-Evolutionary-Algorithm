@@ -8,6 +8,7 @@ import random
 import math
 from collections import Counter
 from typing import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config_builder import build_character_configs
 from gcsim_manager import run_gcsim, GCSIM_PATH
@@ -100,8 +101,16 @@ def preset_to_tokens(preset_func, team) -> list:
 
 
 def decode_rotation(tokens: list, team: list) -> str:
-    """Decode token list → GCSim rotation body string."""
-    body = ""
+    """Decode token list → GCSim rotation body string.
+
+    Guarantees the rotation is safe to execute:
+    - At least one unconditional attack so GCSim never infinite-loops
+    - All skill/burst actions are wrapped in .ready checks
+    - Stripped of leading/trailing whitespace
+    """
+    actions = []
+    has_unconditional = False
+
     for t in tokens:
         if t >= NOOP_TOKEN:
             break
@@ -112,17 +121,27 @@ def decode_rotation(tokens: list, team: list) -> str:
         if cmd_i < NUM_SIMPLE:
             cmd = SIMPLE_ACTIONS[cmd_i]
             if cmd in ("skill", "burst"):
-                body += f"  if .{name}.{cmd}.ready {{ {name} {cmd}; }}\n"
+                # conditional — safe
+                actions.append(f"  if .{name}.{cmd}.ready {{ {name} {cmd}; }}")
             else:
-                body += f"  {name} {cmd};\n"
+                # unconditional attack / charge / aim
+                actions.append(f"  {name} {cmd};")
+                has_unconditional = True
         else:
             for cname, num, base in COMPLEX_INFO:
                 if base <= cmd_i < base + num:
-                    var = cmd_i - base
+                    var = cmd_fn = cmd_i - base
                     gen_fn = next(g for n, c, g in COMPLEX_COMMANDS if n == cname)
-                    body += f"  {gen_fn(name, var)}\n"
+                    actions.append(f"  {gen_fn(name, var)}")
                     break
-    return body
+
+    # If every action is conditional, the while-loop may never advance.
+    # Append one unconditional attack on the active character as a safety valve.
+    if not has_unconditional or not actions:
+        active = team[0] if team else "unknown"
+        actions.append(f"  {active} attack;")
+
+    return "\n".join(actions) + "\n"
 
 
 # ── EA helpers ────────────────────────────────────────────────────────────
@@ -139,24 +158,34 @@ def _dominates(a: dict, b: dict) -> bool:
 
 
 def _repair_team(team_list, lock_set, all_chars):
+    """Build a valid 4-character team from team_list, deduplicating as needed."""
     result = [None, None, None, None]
     indices = list(range(4))
     random.shuffle(indices)
+    # Place locked characters first
     for lc in lock_set:
         if indices:
             result[indices.pop()] = lc
-    # Fill remaining from team_list (non-locked, unique)
-    seen = set(c for c in result if c)
-    candidates = [c for c in team_list if c not in lock_set and c not in seen]
+    # Build candidate list — deduplicated, excluding locked chars already placed
+    seen = set(c for c in result if c is not None)
+    candidates = []
+    for c in team_list:
+        if c not in lock_set and c not in seen and c not in candidates:
+            candidates.append(c)
+            seen.add(c)
     random.shuffle(candidates)
+    # Fill remaining slots, tracking seen to guarantee uniqueness
+    used = set(c for c in result if c is not None)
     for i in range(4):
         if result[i] is None:
             if candidates:
                 c = candidates.pop(0)
             else:
-                pool = list(all_chars - set(c for c in result if c) - lock_set)
-                c = random.choice(pool) if pool else random.choice(list(all_chars))
+                pool = list(all_chars - used - lock_set)
+                random.shuffle(pool)
+                c = pool[0] if pool else random.choice(list(all_chars - used or all_chars))
             result[i] = c
+            used.add(c)
     return tuple(result)
 
 
@@ -203,6 +232,7 @@ def _population_diversity(population):
 def run_optimizer(
     df,
     lock_chars: list = None,
+    ban_chars: list = None,
     gcsim_bin: str = GCSIM_PATH,
     sim_duration: int = 20,
     sim_iterations: int = 150,
@@ -214,25 +244,45 @@ def run_optimizer(
     min_character_level: int = 50,
     traveler_override: dict = None,
     traveler_default: str = "anemo",
+    start_energy: int = 100,
+    enemy_level: int = 100,
+    enemy_resist: float = 0.1,
     pareto: bool = True,
     stop_flag: list = None,
     progress_callback: Callable = None,
 ):
     if lock_chars is None:
         lock_chars = []
+    if ban_chars is None:
+        ban_chars = []
     if stop_flag is None:
         stop_flag = [False]
 
     configs, skipped, warnings = build_character_configs(
-        df, min_character_level, traveler_override, traveler_default
+        df, min_character_level, traveler_override, traveler_default, start_energy
     )
     all_chars = set(configs.keys())
     lock_set = set(lock_chars)
+    ban_set  = set(ban_chars)
+
+    # Bypass min level for locked chars that got filtered out
+    missing_locked = lock_set - all_chars - ban_set
+    if missing_locked:
+        full_configs, _, _ = build_character_configs(df, 0, traveler_override, traveler_default, start_energy)
+        for lc in missing_locked:
+            if lc in full_configs:
+                configs[lc] = full_configs[lc]
+                all_chars.add(lc)
+                warnings.append(f"'{lc}' is below min level but included because it's locked in.")
+
+    all_chars -= ban_set
+    if lock_set & ban_set:
+        raise ValueError(f"Characters can't be both locked and banned: {lock_set & ban_set}")
     missing = lock_set - all_chars
     if missing:
-        raise ValueError(f"Locked characters not found in roster: {missing}")
+        raise ValueError(f"Locked characters not found in roster or CSV: {missing}")
     if len(all_chars) < 4:
-        raise RuntimeError("Need at least 4 eligible characters.")
+        raise RuntimeError("Need at least 4 eligible characters after applying ban list.")
 
     # ── Inner functions ───────────────────────────────────────────────────
 
@@ -242,24 +292,41 @@ def run_optimizer(
         active = team[0]
         cfg = (
             f"options iteration={sim_iterations} duration={sim_duration} swap_delay=4;\n"
-            f"target lvl=100 resist=0.1 particle_threshold=250000 particle_drop_count=1;\n\n"
+            f"target lvl={enemy_level} resist={enemy_resist:.2f} particle_threshold=250000 particle_drop_count=1;\n\n"
         )
         for name in team:
             cfg += configs[name] + '\n'
         cfg += f'active {active};\n\nwhile 1 {{\n{rot_body}}}\n'
         return cfg
 
+    # ✅ Robust fitness with stop flag and error handling
     def fitness(ind):
-        return run_gcsim(build_config(ind), gcsim_bin, sim_iterations, sim_duration)
+        if stop_flag[0]:
+            return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0, "stopped": True}
+        try:
+            result = run_gcsim(build_config(ind), gcsim_bin, sim_iterations, sim_duration)
+            if "error" in result and result["error"]:
+                return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True}
+            return result
+        except Exception as e:
+            return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True, "error": str(e)}
 
     def create_individual():
         locked = list(lock_set)
         random.shuffle(locked)
         needed = 4 - len(locked)
-        others = random.sample(list(all_chars - lock_set), needed)
+        # ✅ Ensure unique characters
+        available = list(all_chars - lock_set)
+        random.shuffle(available)
+        others = available[:needed] if len(available) >= needed else random.choices(available, k=needed)
         team = locked + others
+        team = list(dict.fromkeys(team))  # Deduplicate
+        while len(team) < 4:
+            extra = random.choice(list(all_chars - set(team)))
+            team.append(extra)
         random.shuffle(team)
         team = tuple(team)
+
         if random.random() < 0.8:
             preset_func = random.choice(ROTATION_PRESETS)[1]
             rot = preset_to_tokens(preset_func, list(team))
@@ -320,7 +387,30 @@ def run_optimizer(
         if stop_flag[0]:
             break
 
-        scores = [fitness(ind) for ind in population]
+        scores = [None] * len(population)
+        done_count = 0
+        with ThreadPoolExecutor(max_workers=2) as pool:  # 2 keeps Streamlit Cloud stable
+            fut_map = {pool.submit(fitness, ind): i for i, ind in enumerate(population)}
+            for fut in as_completed(fut_map):
+                scores[fut_map[fut]] = fut.result()
+                done_count += 1
+                if progress_callback and done_count % 5 == 0:
+                    best_so_far = max(
+                        (s for s in scores if s is not None),
+                        key=lambda s: s["dps"],
+                        default={"dps": 0.0, "max_hit": 0.0, "sd": 0.0},
+                    )
+                    progress_callback(
+                        gen + 1, generations, best_so_far,
+                        [], [], configs,
+                        {"individuals_done": done_count, "individuals_total": len(population)},
+                    )
+
+        # ✅ Replace errored individuals
+        for i, score in enumerate(scores):
+            if score.get("errored", False):
+                population[i] = create_individual()
+                scores[i] = fitness(population[i])
 
         if pareto:
             for ind, obj in zip(population, scores):
@@ -328,9 +418,14 @@ def run_optimizer(
                 if not dominated:
                     pareto_archive = [(t, o) for t, o in pareto_archive if not _dominates(obj, o)]
                     pareto_archive.append((ind, obj))
+                    if len(pareto_archive) > 100:
+                        pareto_archive.sort(key=lambda x: x[1]["dps"], reverse=True)
+                        pareto_archive = pareto_archive[:100]
 
         fitness_vals = [s['dps'] for s in scores]
         best_idx = fitness_vals.index(max(fitness_vals))
+        if scores[best_idx].get("stopped", False):
+            break
         if scores[best_idx]['dps'] > best_overall[1]['dps']:
             best_overall = (population[best_idx], scores[best_idx])
 
@@ -340,7 +435,10 @@ def run_optimizer(
         div = _population_diversity(population)
 
         if progress_callback:
-            progress_callback(gen + 1, generations, best_overall[1], top5, pareto_archive, configs, div)
+            progress_callback(
+                gen + 1, generations, best_overall[1], top5, pareto_archive, configs,
+                {"individuals_done": len(population), "individuals_total": len(population)},
+            )
 
         # Evolve
         elite_count = max(1, int(population_size * 0.2))

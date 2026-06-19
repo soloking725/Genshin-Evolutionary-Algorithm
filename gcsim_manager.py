@@ -1,38 +1,51 @@
 """
 gcsim_manager.py
-Downloads the GCSim binary on first use and provides a helper to run configs.
+Downloads the correct GCSim binary for the current platform on first use.
 """
 import os
 import stat
 import json
+import platform
 import tempfile
 import subprocess
 import requests
 
 GCSIM_VERSION = "v2.42.2"
-GCSIM_URL = (
-    f"https://github.com/genshinsim/gcsim/releases/download/"
-    f"{GCSIM_VERSION}/gcsim_linux_amd64"
-)
-GCSIM_PATH = "/tmp/gcsim"
+BASE_URL = f"https://github.com/genshinsim/gcsim/releases/download/{GCSIM_VERSION}"
+
+
+def _get_binary_name() -> str:
+    system  = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "linux":
+        return "gcsim_linux_amd64"
+    elif system == "darwin":
+        return "gcsim_darwin_arm64" if ("arm" in machine or "aarch" in machine) else "gcsim_darwin_amd64"
+    elif system == "windows":
+        return "gcsim_windows_amd64.exe"
+    return "gcsim_linux_amd64"   # Streamlit Cloud fallback
+
+
+GCSIM_PATH = f"/tmp/{_get_binary_name()}"
 
 
 def ensure_gcsim(status_callback=None) -> str:
-    """Download gcsim binary if needed. Returns path to binary."""
     if os.path.exists(GCSIM_PATH) and os.access(GCSIM_PATH, os.X_OK):
         return GCSIM_PATH
 
-    if status_callback:
-        status_callback(f"Downloading GCSim {GCSIM_VERSION}...")
+    binary_name = _get_binary_name()
+    url = f"{BASE_URL}/{binary_name}"
 
-    resp = requests.get(GCSIM_URL, stream=True, timeout=60)
+    if status_callback:
+        status_callback(f"Downloading GCSim {GCSIM_VERSION} ({binary_name})…")
+
+    resp = requests.get(url, stream=True, timeout=120)
     resp.raise_for_status()
 
     with open(GCSIM_PATH, "wb") as f:
         for chunk in resp.iter_content(chunk_size=8192):
             f.write(chunk)
 
-    # Make executable
     st = os.stat(GCSIM_PATH)
     os.chmod(GCSIM_PATH, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -43,22 +56,48 @@ def ensure_gcsim(status_callback=None) -> str:
 
 def run_gcsim(config_str: str, gcsim_bin: str = GCSIM_PATH,
               iterations: int = 150, duration: int = 20) -> dict:
-    """
-    Write config to a temp file, run gcsim, parse JSON output.
-    Returns dict with keys: dps, max_hit, sd (all float, 0.0 on error).
-    """
+    import subprocess
+    import tempfile
+    import os
+    import json
+    import signal
+    import time
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write(config_str)
         cfg_path = f.name
     out_path = cfg_path + ".json"
 
     try:
-        result = subprocess.run(
+        # Use Popen so we can force-kill
+        proc = subprocess.Popen(
             [gcsim_bin, "-c", cfg_path, "-out", out_path],
-            capture_output=True, text=True, timeout=120
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
-        if result.returncode != 0:
-            return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0}
+        
+        # Wait up to 90 seconds
+        # Give GCSim 2× the sim duration plus a 30s buffer, minimum 30s.
+        # This lets long sims (e.g. 90s duration) complete while still killing
+        # truly hung configs (empty rotations, infinite loops) within a sane time.
+        timeout = max(30, duration * 2 + 30)
+        start = time.time()
+        while proc.poll() is None:
+            if time.time() - start > timeout:
+                # Force-kill the entire process tree
+                try:
+                    proc.kill()
+                    proc.wait(timeout=1)
+                except Exception:
+                    pass
+                return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0, "error": "timeout"}
+            time.sleep(0.5)
+        
+        stdout, stderr = proc.communicate(timeout=5)
+        if proc.returncode != 0:
+            return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0,
+                    "error": stderr[:300] if stderr else "unknown error"}
 
         with open(out_path, "r") as jf:
             data = json.load(jf)
@@ -66,21 +105,21 @@ def run_gcsim(config_str: str, gcsim_bin: str = GCSIM_PATH,
         stats = data["statistics"]
         dps = float(stats["dps"]["mean"])
         sd = float(stats["dps"]["sd"])
-
         max_hit = 0.0
-        buckets_info = stats.get("damage_buckets")
-        if buckets_info:
-            for bucket in buckets_info.get("buckets", []):
-                if isinstance(bucket, dict):
-                    max_hit = max(max_hit, bucket.get("max", 0.0))
+        for bucket in stats.get("damage_buckets", {}).get("buckets", []):
+            if isinstance(bucket, dict):
+                max_hit = max(max_hit, bucket.get("max", 0.0))
         if max_hit == 0.0:
             max_hit = float(stats.get("total_damage", 0.0))
 
         return {"dps": dps, "max_hit": max_hit, "sd": sd}
 
-    except Exception:
-        return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0}
+    except Exception as e:
+        return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0, "error": str(e)}
     finally:
         for p in [cfg_path, out_path]:
             if os.path.exists(p):
-                os.unlink(p)
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass

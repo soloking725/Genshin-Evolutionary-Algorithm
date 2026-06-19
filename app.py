@@ -3,6 +3,7 @@ app.py  –  Genshin Team Optimizer
 """
 import io
 import json
+import os
 import queue
 import threading
 import time
@@ -10,6 +11,17 @@ import traceback
 
 import pandas as pd
 import streamlit as st
+
+# Module-level imports — fail loudly at startup rather than during a button click
+from config_builder import build_character_configs, to_gcsim_name
+
+# character_icons.py is a new file — import defensively so the app still
+# loads even if the user hasn't added it yet
+try:
+    from character_icons import get_icon_url as _get_icon_url
+except ImportError:
+    def _get_icon_url(name: str, circle: bool = True) -> str:
+        return ""  # graceful no-op if file is missing
 
 # ── Page config ───────────────────────────────────────────────────────────
 
@@ -22,51 +34,126 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-:root { --accent:#d4af37; --accent2:#7eb8d4; --border:rgba(212,175,55,0.3); }
-.stApp { background: linear-gradient(135deg,#0f0c1a 0%,#1a1535 50%,#0c1a2e 100%); }
-[data-testid="stSidebar"] {
-    background: rgba(15,12,26,0.95);
-    border-right: 1px solid var(--border);
+/* ── Design tokens ─────────────────────────────────────────────────── */
+:root {
+    --gold:    #d4af37;
+    --gold-dim: rgba(212,175,55,0.15);
+    --gold-border: rgba(212,175,55,0.35);
+    --blue:    #7eb8d4;
+    --bg-dark: #0d0b18;
+    --bg-mid:  #161230;
+    --card-bg: rgba(255,255,255,0.04);
+    --card-hover: rgba(255,255,255,0.08);
+    --text-dim: #9a96b0;
 }
+
+/* ── Global background ─────────────────────────────────────────────── */
+.stApp {
+    background:
+        radial-gradient(ellipse at 20% 10%, rgba(100,60,180,0.18) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 90%, rgba(30,80,150,0.18) 0%, transparent 50%),
+        linear-gradient(160deg, #0d0b18 0%, #131028 50%, #0a1020 100%);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background: rgba(10,8,22,0.97);
+    border-right: 1px solid var(--gold-border);
+}
+[data-testid="stSidebar"] .stMarkdown h3 {
+    color: var(--gold);
+    letter-spacing: 0.05em;
+}
+
+/* ── Character cards ───────────────────────────────────────────────── */
 .char-card {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--gold-border);
+    border-radius: 12px;
+    padding: 12px 8px;
     margin-bottom: 8px;
     text-align: center;
+    transition: background 0.15s;
 }
-.char-card .name { color: var(--accent); font-weight:700; font-size:1rem; }
-.char-card .stats { color:#ccc; font-size:0.78rem; line-height:1.6; }
-.status-bar {
-    border-radius: 8px;
-    padding: 14px 20px;
-    margin-bottom: 18px;
-    font-size: 1rem;
-    font-weight: 600;
+.char-card:hover { background: var(--card-hover); }
+.char-card .cname {
+    color: var(--gold);
+    font-weight: 700;
+    font-size: 0.88rem;
+    margin: 6px 0 2px;
+    letter-spacing: 0.02em;
 }
-.status-idle    { background:rgba(80,80,80,0.3);  border:1px solid #555; color:#aaa; }
-.status-running { background:rgba(212,175,55,0.15); border:1px solid var(--accent); color:var(--accent); }
-.status-done    { background:rgba(0,200,100,0.12); border:1px solid #0c6; color:#0c6; }
-.status-error   { background:rgba(200,50,50,0.15); border:1px solid #c33; color:#f88; }
+.char-card .clevel {
+    color: var(--blue);
+    font-size: 0.72rem;
+    margin-bottom: 4px;
+}
+.char-card .cstats {
+    color: var(--text-dim);
+    font-size: 0.68rem;
+    line-height: 1.7;
+}
+.char-card .cweapon {
+    color: #c8bfff;
+    font-size: 0.7rem;
+    margin: 3px 0;
+}
+.char-card .cset {
+    color: var(--gold);
+    font-size: 0.67rem;
+    opacity: 0.85;
+}
+/* Make Streamlit images round inside cards */
+.char-card img,
+[data-testid="stImage"] img {
+    border-radius: 50% !important;
+    border: 2px solid var(--gold-border) !important;
+    background: rgba(0,0,0,0.3);
+}
+
+/* ── Result cards ──────────────────────────────────────────────────── */
 .result-card {
-    background:rgba(255,255,255,0.05);
-    border:1px solid var(--accent2);
-    border-radius:8px;
-    padding:16px;
-    margin-bottom:12px;
+    background: var(--card-bg);
+    border: 1px solid var(--blue);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
 }
+.result-card:hover { background: var(--card-hover); }
+
+/* ── Generation log ────────────────────────────────────────────────── */
 .gen-log {
-    background:#0a0a0a;
-    border:1px solid #333;
-    border-radius:6px;
-    padding:10px;
-    font-family:monospace;
-    font-size:0.78rem;
-    color:#00ff88;
-    max-height:220px;
-    overflow-y:auto;
+    background: #070610;
+    border: 1px solid rgba(100,80,200,0.3);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.76rem;
+    color: #7fffb0;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.6;
 }
+
+/* ── Streamlit widget overrides ────────────────────────────────────── */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #c49b2e, #e8c547) !important;
+    color: #0d0b18 !important;
+    font-weight: 700 !important;
+    border: none !important;
+    border-radius: 8px !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #e8c547, #f5d85a) !important;
+    transform: translateY(-1px);
+}
+.stProgress > div > div {
+    background: linear-gradient(90deg, var(--gold), var(--blue)) !important;
+}
+
+/* ── Section divider ───────────────────────────────────────────────── */
+hr { border-color: var(--gold-border) !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,10 +173,13 @@ DEFAULTS = {
     "pareto_configs": None,
     "best_config": None,
     "warnings": [],
+    "abyss_result": None,
     "status": "idle",          # idle | downloading | running | done | error
     "status_msg": "",
     "gen_done": 0,
     "gen_total": 1,
+    "ind_done": 0,
+    "ind_total": 0,
     # Freeze optimizer params when Start is clicked so reruns don't change them
     "frozen_params": None,
 }
@@ -100,47 +190,116 @@ for k, v in DEFAULTS.items():
 
 # ── GCSim (download once per session) ────────────────────────────────────
 
+from gcsim_manager import ensure_gcsim
+
 @st.cache_resource(show_spinner=False)
 def _cached_gcsim():
-    from gcsim_manager import ensure_gcsim
     return ensure_gcsim()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
+def _fmt(val, decimals=0):
+    """Safely format a numeric stat value."""
+    try:
+        v = float(val)
+        return f"{v:,.{decimals}f}"
+    except (TypeError, ValueError):
+        return str(val) if val else "—"
+
 def char_card(row):
-    name = row["Character Name"]
-    level = int(row.get("Character Level", 0) or 0)
-    cons  = int(row.get("Character Constellations", 0) or 0)
+    name   = row["Character Name"]
+    # Escape HTML special chars so names with <, >, & don't break cards
+    import html as _html
+    name   = _html.escape(str(name))
+    level  = int(row.get("Character Level", 0) or 0)
+    cons   = int(row.get("Character Constellations", 0) or 0)
     weapon = row.get("Weapon Name", "—") or "—"
-    fr    = int(row.get("Character Friendship", 0) or 0)
-    bonus = row.get("Artifact Set Bonus", "—") or "—"
-    st.markdown(f"""
-    <div class="char-card">
-      <div class="name">{name}</div>
-      <div class="stats">
-        Lv {level} · C{cons} · F{fr}<br>
-        🗡 {weapon}<br>
-        <span style="color:#d4af37">{bonus}</span>
-      </div>
-    </div>""", unsafe_allow_html=True)
+    fr     = int(row.get("Character Friendship", 0) or 0)
+    bonus  = row.get("Artifact Set Bonus", "—") or "—"
+    hp     = _fmt(row.get("HP", ""))
+    atk    = _fmt(row.get("ATK", ""))
+    def_   = _fmt(row.get("DEF", ""))
+    cr     = row.get("Crit Rate", "")
+    cd     = row.get("Crit DMG", "")
+
+    # Icon: try local file first (if download_icons.py was run),
+    # then the URL stored in the DataFrame, then the hardcoded mapping.
+    local_path = f"assets/icons/{name}.png"
+    icon_url   = str(row.get("Icon URL", "") or "")
+    if not icon_url or "UI_" not in icon_url:
+        icon_url = _get_icon_url(name, circle=True)
+
+    with st.container():
+        ini = name[0].upper() if name else "?"
+        ph = (
+            '<div style="width:90px;height:90px;border-radius:50%;'
+            'border:2px solid rgba(212,175,55,0.4);background:rgba(212,175,55,0.1);'
+            'display:flex;align-items:center;justify-content:center;'
+            'color:#d4af37;font-size:1.5rem;font-weight:700;">' + ini + "</div>"
+        )
+        if os.path.exists(local_path):
+            import base64
+            try:
+                with open(local_path, "rb") as _lf:
+                    _b64 = base64.b64encode(_lf.read()).decode()
+                icon_html = (
+                    '<img src="data:image/png;base64,' + _b64
+                    + '" style="width:90px;height:90px;border-radius:50%;'
+                    'border:2px solid rgba(212,175,55,0.4);object-fit:cover;">'
+                )
+            except Exception:
+                icon_html = ph
+        elif icon_url:
+            hidden_ph = ph.replace("display:flex", "display:none")
+            icon_html = (
+                '<img src="' + icon_url + '" width="90" height="90" '
+                'style="border-radius:50%;border:2px solid rgba(212,175,55,0.4);object-fit:cover;" '
+                'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">'
+                + hidden_ph
+            )
+        else:
+            icon_html = ph
+        st.markdown(
+            '<div style="display:flex;justify-content:center;margin-bottom:4px">'
+            + icon_html + "</div>",
+            unsafe_allow_html=True,
+        )
 
 
+        st.markdown(f"""
+        <div class="char-card">
+          <div class="cname">{name}</div>
+          <div class="clevel">Lv {level} &nbsp;·&nbsp; C{cons} &nbsp;·&nbsp; F{fr}</div>
+          <div class="cweapon">🗡 {weapon}</div>
+          <div class="cstats">
+            ❤ {hp} &nbsp; ⚔ {atk} &nbsp; 🛡 {def_}<br>
+            CR {cr} &nbsp;/&nbsp; CD {cd}
+          </div>
+          <div class="cset">{bonus}</div>
+        </div>""", unsafe_allow_html=True)
 def _merge_df(existing, new_df):
     combined = pd.concat([existing, new_df], ignore_index=True)
+    # Normalise UID to string and Character Name to stripped string so that
+    # "618867267", 618867267, and "618867267.0" all match each other,
+    # preventing duplicate rows when mixing CSV uploads with live fetches.
+    combined["UID"] = combined["UID"].astype(str).str.strip().str.split(".").str[0]
+    combined["Character Name"] = combined["Character Name"].astype(str).str.strip()
     return combined.drop_duplicates(
         subset=["UID", "Character Name"], keep="last"
     ).reset_index(drop=True)
 
 
 def status_bar(level, msg):
-    cls = {"idle":"status-idle","downloading":"status-running",
-           "running":"status-running","done":"status-done","error":"status-error"}[level]
-    icon = {"idle":"💤","downloading":"⬇️","running":"🧬","done":"✅","error":"❌"}[level]
-    st.markdown(
-        f'<div class="status-bar {cls}">{icon} {msg}</div>',
-        unsafe_allow_html=True,
-    )
+    """Use native Streamlit callouts — stable across reruns, no emoji flicker."""
+    if level == "idle":
+        st.info(msg, icon="💤")
+    elif level in ("downloading", "running"):
+        st.warning(msg, icon="⚙️")
+    elif level == "done":
+        st.success(msg, icon="✅")
+    elif level == "error":
+        st.error(msg, icon="🚨")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -188,7 +347,17 @@ with st.sidebar:
                     st.session_state.player_info = info
                     st.success(f"Loaded **{len(new_df)}** characters for **{info['nickname']}**.")
             except Exception as e:
-                st.error(f"Fetch failed: {e}")
+                err_str = str(e)
+                hint = ""
+                if "SSL" in err_str or "certificate" in err_str.lower():
+                    hint = " (SSL error — on Mac, run: pip install certifi)"
+                elif "Cannot connect" in err_str or "ClientConnectorError" in err_str:
+                    hint = " (Network error — check your internet connection)"
+                elif "EnkaAPIError" in err_str or "retcode" in err_str:
+                    hint = " (Enka API error — make sure your showcase is public in-game)"
+                elif "401" in err_str or "403" in err_str:
+                    hint = " (UID not found or showcase is private)"
+                st.error(f"Fetch failed: {e}{hint}")
 
     csv_file = st.file_uploader("…or upload CSV", type=["csv"],
                                  disabled=st.session_state.opt_running)
@@ -248,12 +417,52 @@ with st.sidebar:
         )
 
         char_names = sorted(st.session_state.characters_df["Character Name"].unique())
-        lock_chars = st.multiselect(
-            "Lock characters (always on team)",
-            options=char_names,
-            max_selections=4,
+        # Abyss mode toggle shown here so lock UI can adapt
+        abyss_mode_early = st.checkbox(
+            "⚔️ Spiral Abyss mode (two teams)",
+            key="abyss_toggle",
             disabled=st.session_state.opt_running,
+            help="Optimizes two separate teams. Characters on Team 1 can't appear on Team 2.",
         )
+
+        if abyss_mode_early:
+            st.caption("Lock characters to specific teams for Abyss mode.")
+            lock_t1 = st.multiselect(
+                "🔒 Lock to Team 1",
+                options=char_names,
+                max_selections=4,
+                disabled=st.session_state.opt_running,
+                key="lock_t1",
+            )
+            lock_t2 = st.multiselect(
+                "🔒 Lock to Team 2",
+                options=[c for c in char_names if c not in lock_t1],
+                max_selections=4,
+                disabled=st.session_state.opt_running,
+                key="lock_t2",
+            )
+            lock_chars = lock_t1  # used for conflict checks below
+        else:
+            lock_t1 = []
+            lock_t2 = []
+            lock_chars = st.multiselect(
+                "🔒 Lock IN (always on team)",
+                options=char_names,
+                max_selections=4,
+                disabled=st.session_state.opt_running,
+                help="These characters will always appear in every team.",
+            )
+
+        ban_chars = st.multiselect(
+            "🚫 Lock OUT (never on team)",
+            options=char_names,
+            disabled=st.session_state.opt_running,
+            help="Exclude characters from all teams — useful for benching weaker characters.",
+        )
+        _all_locked = list(lock_t1) + list(lock_t2) + (lock_chars if not abyss_mode_early else [])
+        _conflicts = [c for c in _all_locked if c in ban_chars]
+        if _conflicts:
+            st.warning(f"⚠️ {', '.join(_conflicts)} can't be locked in and locked out.")
 
         with st.expander("⚙️ Advanced settings"):
             preset_name = st.selectbox(
@@ -281,6 +490,40 @@ with st.sidebar:
                 disabled=st.session_state.opt_running,
             )
 
+            st.markdown("**Starting energy**")
+            start_energy = st.select_slider(
+                "Starting energy per character",
+                options=[0, 25, 50, 75, 100],
+                value=100,
+                disabled=st.session_state.opt_running,
+                help=(
+                    "100 = all bursts available immediately (standard GCSim default, "
+                    "gives highest DPS but is optimistic). "
+                    "0 = realistic — characters must build energy before bursting. "
+                    "Stygian Onslaught always starts at 0."
+                ),
+            )
+
+            st.markdown("**Enemy**")
+            ENEMY_PRESETS = {
+                "Spiral Abyss F12": dict(level=100, resist=10),
+                "Weekly Boss":      dict(level=95,  resist=10),
+                "Overworld Elite":  dict(level=90,  resist=10),
+                "Custom":           dict(level=100, resist=10),
+            }
+            enemy_preset = st.selectbox("Enemy preset", list(ENEMY_PRESETS.keys()),
+                                         disabled=st.session_state.opt_running)
+            ep = ENEMY_PRESETS[enemy_preset]
+            _custom = (enemy_preset == "Custom") and not st.session_state.opt_running
+            enemy_level      = st.slider("Enemy level", 1, 100, ep["level"], disabled=not _custom)
+            enemy_resist_pct = st.slider("Enemy resistance (%)", 0, 75, ep["resist"], disabled=not _custom)
+            if not _custom:
+                enemy_level, enemy_resist_pct = ep["level"], ep["resist"]
+
+
+
+        abyss_mode = abyss_mode_early   # already set above
+
         st.markdown("---")
         st.markdown("**3 · Run**")
 
@@ -292,25 +535,42 @@ with st.sidebar:
 
         if stop_clicked and st.session_state.opt_running:
             st.session_state.stop_flag[0] = True
-            st.session_state.status = "idle"
-            st.session_state.status_msg = "Stopping… (finishing current generation)"
+            st.session_state.status = "running"
+            st.session_state.status_msg = "Stopping… (finishing current generation, please wait)"
+            # ✅ Force the running loop to check the flag more often
+            st.rerun()
 
         if run_clicked and not st.session_state.opt_running:
-            # ── Resolve locked char names ──────────────────────────────────
-            from config_builder import to_gcsim_name
-            df_now = st.session_state.characters_df
-            locked_gcsim = []
-            for lc in lock_chars:
-                rows = df_now[df_now["Character Name"] == lc]
-                if not rows.empty:
-                    gname = to_gcsim_name(lc, rows.iloc[0], [], {}, traveler_default)
-                    if gname:
-                        locked_gcsim.append(gname)
+            # Block if lock-in and lock-out conflict
+            _conflicts = [c for c in lock_chars if c in ban_chars]
+            if _conflicts:
+                st.error(f"Remove {', '.join(_conflicts)} from either Lock IN or Lock OUT before running.")
+                st.stop()
 
-            # ── Freeze all params so reruns don't change them ──────────────
+            # ── Resolve locked char names ──────────────────────────────────
+            df_now = st.session_state.characters_df
+
+            def _resolve_list(names):
+                out = []
+                for lc in names:
+                    rows = df_now[df_now["Character Name"] == lc]
+                    if not rows.empty:
+                        gname = to_gcsim_name(lc, rows.iloc[0], [], {}, traveler_default)
+                        if gname:
+                            out.append(gname)
+                return out
+
+            locked_gcsim    = _resolve_list(lock_chars)
+            locked_gcsim_t1 = _resolve_list(lock_t1)
+            locked_gcsim_t2 = _resolve_list(lock_t2)
+            banned_gcsim    = _resolve_list(ban_chars)
+
             st.session_state.frozen_params = dict(
                 mode=mode,
                 locked_gcsim=locked_gcsim,
+                locked_gcsim_t1=locked_gcsim_t1,
+                locked_gcsim_t2=locked_gcsim_t2,
+                banned_gcsim=banned_gcsim,
                 sim_duration=sim_duration,
                 sim_iterations=sim_iterations,
                 population_size=population_size,
@@ -319,6 +579,10 @@ with st.sidebar:
                 min_char_level=min_char_level,
                 pareto_on=pareto_on,
                 traveler_default=traveler_default,
+                enemy_level=enemy_level,
+                enemy_resist=enemy_resist_pct / 100.0,
+                start_energy=start_energy,
+                abyss_mode=abyss_mode,
             )
 
             # ── Reset progress state ───────────────────────────────────────
@@ -329,11 +593,17 @@ with st.sidebar:
             st.session_state.pareto_configs= None
             st.session_state.best_config   = None
             st.session_state.warnings      = []
+            st.session_state.abyss_result  = None   # clear previous abyss run
             st.session_state.gen_done      = 0
             st.session_state.gen_total     = generations
             st.session_state.status        = "downloading"
             st.session_state.status_msg    = "Downloading GCSim binary (first run only)…"
             st.session_state.opt_running   = True
+
+            # ── Download GCSim in the main thread (thread-safe) ─────────────
+            gcsim_path = _cached_gcsim()   # ✅ moved here
+            st.session_state.status        = "running"
+            st.session_state.status_msg    = "Running optimizer…"
 
             progress_q = queue.Queue()
             result_q   = queue.Queue()
@@ -343,40 +613,87 @@ with st.sidebar:
             fp = st.session_state.frozen_params
 
             # Capture as plain Python objects BEFORE thread starts.
-            # st.session_state is NOT accessible from background threads.
             _df_snapshot = st.session_state.characters_df.copy()
             _stop_flag   = st.session_state.stop_flag
 
             def _worker():
                 try:
-                    # Download GCSim (cached after first run)
-                    gcsim_path = _cached_gcsim()
-                    progress_q.put(("status", "running", "Running optimizer…"))
-
-                    def _cb(*args):
-                        progress_q.put(("progress",) + args)
+                    # gcsim_path is now available from outer scope (closure)
+                    progress_q.put(("status", "running", "Running optimizer…"))  # already running
 
                     if "Preset" in fp["mode"]:
                         from optimizer_pareto import run_optimizer
                     else:
                         from optimizer_rotation import run_optimizer
 
-                    result = run_optimizer(
-                        df=_df_snapshot,
-                        lock_chars=fp["locked_gcsim"],
-                        gcsim_bin=gcsim_path,
-                        sim_duration=fp["sim_duration"],
-                        sim_iterations=fp["sim_iterations"],
-                        population_size=fp["population_size"],
-                        generations=fp["generations"],
-                        mutation_rate=fp["mutation_rate"],
-                        min_character_level=fp["min_char_level"],
-                        traveler_default=fp["traveler_default"],
-                        pareto=fp["pareto_on"],
-                        stop_flag=_stop_flag,
-                        progress_callback=_cb,
-                    )
-                    result_q.put(("ok", result))
+                    def _make_cb(label=""):
+                        def _cb(*args):
+                            progress_q.put(("progress", label) + args)
+                        return _cb
+
+                    def _run(extra_ban=None, label="", lock_override=None):
+                        ban = list(fp["banned_gcsim"]) + (extra_ban or [])
+                        lc  = lock_override if lock_override is not None else fp["locked_gcsim"]
+                        return run_optimizer(
+                            df=_df_snapshot,
+                            lock_chars=lc,
+                            ban_chars=ban,
+                            gcsim_bin=gcsim_path,
+                            sim_duration=fp["sim_duration"],
+                            sim_iterations=fp["sim_iterations"],
+                            population_size=fp["population_size"],
+                            generations=fp["generations"],
+                            mutation_rate=fp["mutation_rate"],
+                            min_character_level=fp["min_char_level"],
+                            traveler_default=fp["traveler_default"],
+                            start_energy=fp["start_energy"],
+                            enemy_level=fp["enemy_level"],
+                            enemy_resist=fp["enemy_resist"],
+                            pareto=fp["pareto_on"],
+                            stop_flag=_stop_flag,
+                            progress_callback=_make_cb(label),
+                        )
+
+                    if fp["abyss_mode"]:
+                        progress_q.put(("status", "running", "Optimizing Team 1 (first half)…"))
+                        result1 = _run(label="Team 1",
+                                            lock_override=fp["locked_gcsim_t1"] or fp["locked_gcsim"])
+                        best_cfg1, best_obj1, summary1, configs1, warnings1 = result1
+                        team1_chars = summary1[0]["team"] if summary1 else []
+                        progress_q.put(("status", "running",
+                            f"Team 1 done ({', '.join(team1_chars)}). Optimizing Team 2…"))
+                        # Team 2: ban team1 chars + user bans; use T2-specific locks
+                        ban2 = list(fp["banned_gcsim"]) + team1_chars
+                        from optimizer_pareto import run_optimizer as _run_pareto_t2
+                        from optimizer_rotation import run_optimizer as _run_rot_t2
+                        _run2_fn = _run_pareto_t2 if "Preset" in fp["mode"] else _run_rot_t2
+                        result2 = _run2_fn(
+                            df=_df_snapshot,
+                            lock_chars=fp["locked_gcsim_t2"],
+                            ban_chars=ban2,
+                            gcsim_bin=gcsim_path,
+                            sim_duration=fp["sim_duration"],
+                            sim_iterations=fp["sim_iterations"],
+                            population_size=fp["population_size"],
+                            generations=fp["generations"],
+                            mutation_rate=fp["mutation_rate"],
+                            min_character_level=fp["min_char_level"],
+                            traveler_default=fp["traveler_default"],
+                            enemy_level=fp["enemy_level"],
+                            enemy_resist=fp["enemy_resist"],
+                            start_energy=fp["start_energy"],
+                            pareto=fp["pareto_on"],
+                            stop_flag=_stop_flag,
+                            progress_callback=_make_cb("Team 2"),
+                        )
+                        best_cfg2, best_obj2, summary2, configs2, warnings2 = result2
+                        result_q.put(("ok_abyss", (
+                            best_cfg1, best_obj1, summary1, configs1,
+                            best_cfg2, best_obj2, summary2, configs2,
+                            warnings1 + warnings2,
+                        )))
+                    else:
+                        result_q.put(("ok", _run()))
                 except Exception:
                     result_q.put(("err", traceback.format_exc()))
 
@@ -393,9 +710,16 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
-<div style="text-align:center;padding:20px 0 12px">
-  <h1 style="color:#d4af37;margin:0">⚔️ Genshin Team Optimizer</h1>
-  <p style="color:#aaa;margin:6px 0 0">Evolutionary algorithm + GCSim finds your strongest team.</p>
+<div style="text-align:center;padding:28px 0 8px">
+  <div style="font-size:0.75rem;letter-spacing:0.25em;color:#7eb8d4;text-transform:uppercase;margin-bottom:6px">
+    Evolutionary Algorithm · GCSim · Enka Network
+  </div>
+  <h1 style="color:#d4af37;margin:0;font-size:2rem;letter-spacing:0.05em;font-weight:800">
+    ⚔️ Genshin Team Optimizer
+  </h1>
+  <p style="color:#9a96b0;margin:8px 0 0;font-size:0.9rem">
+    Finds your <em>actual</em> strongest team from your roster — no guessing, just math.
+  </p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -414,12 +738,17 @@ if st.session_state.opt_running:
             st.session_state.status     = level
             st.session_state.status_msg = text
         elif msg[0] == "progress":
-            _, gen_num, gen_total, best_obj, top5, *_ = msg
-            st.session_state.gen_done  = gen_num
-            st.session_state.gen_total = gen_total
-            st.session_state.best_obj  = best_obj
-            st.session_state.status     = "running"
-            st.session_state.status_msg = f"Generation {gen_num} / {gen_total}"
+            _, _label, gen_num, gen_total, best_obj, top5, *rest = msg
+            ind_info = rest[2] if len(rest) > 2 else {}
+            ind_done  = ind_info.get("individuals_done", 0) if ind_info else 0
+            ind_total = ind_info.get("individuals_total", 0) if ind_info else 0
+            st.session_state.gen_done    = gen_num
+            st.session_state.gen_total   = gen_total
+            st.session_state.ind_done    = ind_done
+            st.session_state.ind_total   = ind_total
+            st.session_state.best_obj    = best_obj
+            st.session_state.status      = "running"
+            st.session_state.status_msg  = f"Generation {gen_num} / {gen_total}"
 
             # Format top-5 log entry
             t5_lines = []
@@ -451,15 +780,44 @@ if st.session_state.opt_running:
             st.session_state.pareto_summary  = pareto_summary
             st.session_state.pareto_configs  = pareto_configs
             st.session_state.warnings        = warnings
+            st.session_state.abyss_result    = None
             st.session_state.status          = "done"
+            st.session_state.stop_flag       = [False]
+            st.session_state["_needs_final_rerun"] = True
             st.session_state.status_msg      = (
                 f"Done! Best DPS: {best_obj['dps']:,.0f}  "
                 f"Max Hit: {best_obj['max_hit']:,.0f}"
             )
+        elif tag == "ok_abyss":
+            (best_cfg1, best_obj1, summary1, configs1,
+             best_cfg2, best_obj2, summary2, configs2, warnings) = payload
+            st.session_state.best_config    = best_cfg1
+            st.session_state.best_obj       = best_obj1
+            st.session_state.pareto_summary = summary1
+            st.session_state.pareto_configs = configs1
+            st.session_state.warnings       = warnings
+            st.session_state.abyss_result   = {
+                "team1": {"best_config": best_cfg1, "best_obj": best_obj1,
+                          "summary": summary1, "configs": configs1},
+                "team2": {"best_config": best_cfg2, "best_obj": best_obj2,
+                          "summary": summary2, "configs": configs2},
+            }
+            t1 = summary1[0]["team"] if summary1 else []
+            t2 = summary2[0]["team"] if summary2 else []
+            combined_dps = (best_obj1["dps"] + best_obj2["dps"])
+            st.session_state.status     = "done"
+            st.session_state.stop_flag  = [False]
+            st.session_state["_needs_final_rerun"] = True
+            st.session_state.status_msg = (
+                f"Abyss done! Team 1: {', '.join(t1)} | Team 2: {', '.join(t2)} | "
+                f"Combined DPS: {combined_dps:,.0f}"
+            )
         else:
             st.session_state.status     = "error"
-            st.session_state.status_msg = "Optimizer error — see details below."
+            st.session_state.status_msg = "Optimizer crashed — see details below."
             st.session_state.warnings   = [payload]
+            st.session_state.stop_flag  = [False]
+            st.session_state["_needs_final_rerun"] = True
 
 
 # ── Status bar (ALWAYS visible at top) ───────────────────────────────────
@@ -476,9 +834,18 @@ elif status == "downloading":
 elif status == "running":
     gen_done  = st.session_state.gen_done
     gen_total = st.session_state.gen_total
-    pct = int(100 * gen_done / max(gen_total, 1))
-    status_bar("running", f"🧬 Running… Generation {gen_done} / {gen_total}  ({pct}%)")
-    st.progress(gen_done / max(gen_total, 1))
+    ind_done  = st.session_state.get("ind_done", 0)
+    ind_total = st.session_state.get("ind_total", 0)
+    # Overall progress = fraction of all individuals across all generations
+    total_inds = gen_total * max(ind_total, 1)
+    done_inds  = (gen_done - 1) * max(ind_total, 1) + ind_done if gen_done > 0 else 0
+    overall_pct = min(done_inds / total_inds, 1.0) if total_inds > 0 else gen_done / max(gen_total, 1)
+    if ind_total > 0 and ind_done < ind_total:
+        ind_label = f"  ·  evaluating {ind_done}/{ind_total} individuals"
+    else:
+        ind_label = ""
+    status_bar("running", f"Running… Gen {gen_done}/{gen_total}{ind_label}")
+    st.progress(overall_pct)
 elif status == "done":
     status_bar("done", msg)
 elif status == "error":
@@ -500,10 +867,17 @@ if status == "running" and st.session_state.best_obj:
     st.markdown(f'<div class="gen-log">{log_html}</div>', unsafe_allow_html=True)
 
 # ── Schedule next poll while running ─────────────────────────────────────
+# Also rerun once immediately when the optimizer just finished so the sidebar
+# buttons (Start/Stop) refresh without waiting for the next user interaction.
 
 if st.session_state.opt_running:
-    time.sleep(0.8)
+    time.sleep(1.2)   # 1.2s is a good balance: responsive but not flickery
     st.rerun()
+elif st.session_state.status in ("done", "error"):
+    # One extra rerun after finishing to flush sidebar button states
+    if st.session_state.get("_needs_final_rerun", False):
+        st.session_state["_needs_final_rerun"] = False
+        st.rerun()
 
 # ── Abort early if no characters ─────────────────────────────────────────
 
@@ -542,10 +916,15 @@ st.markdown(f"### {player_display}'s Roster")
 if info:
     st.caption(f"AR {info['level']} · UID {info['uid']}  |  {len(df)} character(s) loaded")
 
-cols = st.columns(min(len(df), 4))
-for i, (_, row) in enumerate(df.iterrows()):
-    with cols[i % 4]:
-        char_card(row)
+# ✅ FIX: only create columns if df is not empty
+if not df.empty:
+    # Fixed 4-column grid looks neat and consistent
+    cols = st.columns(4)
+    for i, (_, row) in enumerate(df.iterrows()):
+        with cols[i % 4]:
+            char_card(row)
+else:
+    st.info("No character data to display. Use the sidebar to fetch or upload a CSV.")
 
 # ── Results ───────────────────────────────────────────────────────────────
 
@@ -558,7 +937,55 @@ if st.session_state.pareto_summary:
             for w in st.session_state.warnings:
                 st.caption(w)
 
-    tab_pareto, tab_best, tab_all = st.tabs(["Pareto Front", "Best DPS Team", "All Configs"])
+    if st.session_state.abyss_result:
+        tab_abyss, tab_pareto, tab_best, tab_all = st.tabs(
+            ["🏆 Abyss Teams", "Pareto Front (T1)", "Best DPS (T1)", "All Configs"]
+        )
+        with tab_abyss:
+            ar = st.session_state.abyss_result
+            for half, key in [("Team 1 — First Half", "team1"), ("Team 2 — Second Half", "team2")]:
+                half_data = ar[key]
+                obj = half_data["best_obj"]
+                summ = half_data["summary"]
+                cfgs = half_data["configs"]
+                st.markdown(f"#### {half}")
+                if obj:
+                    h1, h2, h3 = st.columns(3)
+                    h1.metric("DPS", f"{obj['dps']:,.0f}")
+                    h2.metric("Max Hit", f"{obj['max_hit']:,.0f}")
+                    h3.metric("SD", f"{obj['sd']:,.0f}")
+                for i, (entry, cfg) in enumerate(zip(summ[:3], cfgs[:3])):
+                    team_str = " · ".join(entry.get("team", []))
+                    preset   = entry.get("preset", "—")
+                    dps      = entry.get("dps", 0)
+                    mh       = entry.get("max_hit", 0)
+                    st.markdown(f"""
+                    <div class="result-card">
+                      <b style="color:#d4af37">#{i+1}</b>
+                      &nbsp;<span style="color:#7eb8d4">{team_str}</span><br>
+                      <small style="color:#aaa">Rotation: {preset} &nbsp;·&nbsp;
+                      DPS <b style="color:#d4af37">{dps:,.0f}</b> &nbsp;·&nbsp;
+                      Max Hit <b style="color:#7eb8d4">{mh:,.0f}</b></small>
+                    </div>""", unsafe_allow_html=True)
+                    with st.expander(f"{key} config #{i+1}"):
+                        st.code(cfg, language="text")
+                        st.download_button(
+                            f"⬇ Download {key} config #{i+1}",
+                            data=cfg,
+                            file_name=f"{key}_team_{i+1}.txt",
+                            mime="text/plain",
+                            key=f"dl_abyss_{key}_{i}",
+                        )
+                if half_data["best_config"]:
+                    st.download_button(
+                        f"⬇ Download best {half} config",
+                        data=half_data["best_config"],
+                        file_name=f"best_{key}.txt",
+                        mime="text/plain",
+                        key=f"dl_abyss_best_{key}",
+                    )
+    else:
+        tab_pareto, tab_best, tab_all = st.tabs(["Pareto Front", "Best DPS Team", "All Configs"])
 
     with tab_pareto:
         summary = st.session_state.pareto_summary

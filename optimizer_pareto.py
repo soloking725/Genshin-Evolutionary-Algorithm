@@ -6,6 +6,7 @@ Objectives: maximise DPS + max single hit, minimise SD (Pareto-mode).
 """
 import random
 from typing import Callable, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config_builder import build_character_configs
 from gcsim_manager import run_gcsim, GCSIM_PATH
@@ -19,8 +20,8 @@ def _filler(active):
     return FILLER_ACTION.get(active, 'attack')
 
 
-def _preset_standard(team):
-    active, body = team[0], ""
+def _preset_standard(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -28,8 +29,8 @@ def _preset_standard(team):
     return active, body
 
 
-def _preset_support_first(team):
-    main_dps, others, active = team[-1], team[:-1], team[0]
+def _preset_support_first(team, active=None):
+    main_dps, others = team[-1], team[:-1]; active = active or team[0]
     body = ""
     for n in others:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
@@ -40,8 +41,8 @@ def _preset_support_first(team):
     return active, body
 
 
-def _preset_quickswap(team):
-    active, body = team[0], ""
+def _preset_quickswap(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
@@ -50,8 +51,8 @@ def _preset_quickswap(team):
     return active, body
 
 
-def _preset_raiden_hyper(team):
-    active, body = team[0], ""
+def _preset_raiden_hyper(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
@@ -61,8 +62,8 @@ def _preset_raiden_hyper(team):
     return active, body
 
 
-def _preset_ganyu_aimed(team):
-    active, body = team[0], ""
+def _preset_ganyu_aimed(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -71,8 +72,8 @@ def _preset_ganyu_aimed(team):
     return active, body
 
 
-def _preset_wriothesley(team):
-    active, body = team[0], ""
+def _preset_wriothesley(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
     for n in team:
@@ -82,8 +83,8 @@ def _preset_wriothesley(team):
     return active, body
 
 
-def _preset_heavy_filler(team):
-    active, body = team[0], ""
+def _preset_heavy_filler(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
     for n in team:
@@ -92,8 +93,8 @@ def _preset_heavy_filler(team):
     return active, body
 
 
-def _preset_burst_skill_weave(team):
-    active, body = team[0], ""
+def _preset_burst_skill_weave(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -101,8 +102,8 @@ def _preset_burst_skill_weave(team):
     return active, body
 
 
-def _preset_national(team):
-    main_dps, others, active = team[-1], team[:-1], team[0]
+def _preset_national(team, active=None):
+    main_dps, others = team[-1], team[:-1]; active = active or team[0]
     body = ""
     for n in others:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
@@ -113,8 +114,8 @@ def _preset_national(team):
     return active, body
 
 
-def _preset_hyperbloom(team):
-    active, body = team[0], ""
+def _preset_hyperbloom(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -122,8 +123,8 @@ def _preset_hyperbloom(team):
     return active, body
 
 
-def _preset_battery_first(team):
-    active, body = team[0], ""
+def _preset_battery_first(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
@@ -132,8 +133,8 @@ def _preset_battery_first(team):
     return active, body
 
 
-def _preset_melt_ganyu(team):
-    active, body = team[0], ""
+def _preset_melt_ganyu(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
@@ -143,8 +144,8 @@ def _preset_melt_ganyu(team):
     return active, body
 
 
-def _preset_tanky(team):
-    active, body = team[0], ""
+def _preset_tanky(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -152,8 +153,8 @@ def _preset_tanky(team):
     return active, body
 
 
-def _preset_kinich(team):
-    active, body = team[0], ""
+def _preset_kinich(team, active=None):
+    active = active or team[0]; body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
     for n in team:
@@ -199,6 +200,7 @@ def _dominates(a: dict, b: dict) -> bool:
 def run_optimizer(
     df,
     lock_chars: list = None,
+    ban_chars: list = None,
     gcsim_bin: str = GCSIM_PATH,
     sim_duration: int = 20,
     sim_iterations: int = 150,
@@ -210,8 +212,12 @@ def run_optimizer(
     min_character_level: int = 50,
     traveler_override: dict = None,
     traveler_default: str = "anemo",
+    start_energy: int = 100,
+    # ✅ NEW: enemy parameters
+    enemy_level: int = 100,
+    enemy_resist: float = 0.1,
     pareto: bool = True,
-    stop_flag: list = None,      # stop_flag[0] = True to abort
+    stop_flag: list = None,
     progress_callback: Callable = None,
 ):
     """
@@ -222,14 +228,33 @@ def run_optimizer(
     """
     if lock_chars is None:
         lock_chars = []
+    if ban_chars is None:
+        ban_chars = []
     if stop_flag is None:
         stop_flag = [False]
 
     configs, skipped, warnings = build_character_configs(
-        df, min_character_level, traveler_override, traveler_default
+        df, min_character_level, traveler_override, traveler_default, start_energy
     )
     all_chars = set(configs.keys())
     lock_set = set(lock_chars)
+    ban_set = set(ban_chars)
+    
+    # Apply bans
+    all_chars -= ban_set
+    
+    # For locked chars filtered out by min level, rebuild without level cap
+    missing_locked = lock_set - all_chars - ban_set
+    if missing_locked:
+        full_configs, _, _ = build_character_configs(df, 0, traveler_override, traveler_default, start_energy)
+        for lc in missing_locked:
+            if lc in full_configs:
+                configs[lc] = full_configs[lc]
+                all_chars.add(lc)
+                warnings.append(f"'{lc}' is below min level but included because it's locked in.")
+
+    if lock_set & ban_set:
+        raise ValueError(f"Characters can't be both locked and banned: {lock_set & ban_set}")
     missing = lock_set - all_chars
     if missing:
         raise ValueError(f"Locked characters not found in roster: {missing}")
@@ -240,20 +265,30 @@ def run_optimizer(
 
     def build_config(team_tuple):
         preset_id, start_idx, *chars = team_tuple
+        active = chars[start_idx % len(chars)]   # EA-chosen on-field character
         preset_func = ROTATION_PRESETS[preset_id][1]
-        _, rotation_body = preset_func(chars)
-        active = chars[start_idx]
+        _, rotation_body = preset_func(chars, active=active)
+        # ✅ Use enemy_level and enemy_resist from parameters
         cfg = (
             f"options iteration={sim_iterations} duration={sim_duration} swap_delay=4;\n"
-            f"target lvl=100 resist=0.1 particle_threshold=250000 particle_drop_count=1;\n\n"
+            f"target lvl={enemy_level} resist={enemy_resist:.2f} particle_threshold=250000 particle_drop_count=1;\n\n"
         )
         for name in chars:
             cfg += configs[name] + '\n'
         cfg += f'active {active};\n\nwhile 1 {{\n{rotation_body}}}\n'
         return cfg
 
-    def fitness(team):
-        return run_gcsim(build_config(team), gcsim_bin, sim_iterations, sim_duration)
+    # ✅ FIX: Add error handling and stop flag check
+    def fitness(ind):
+        if stop_flag[0]:
+            return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0, "stopped": True}
+        try:
+            result = run_gcsim(build_config(ind), gcsim_bin, sim_iterations, sim_duration)
+            if "error" in result and result["error"]:
+                return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True}
+            return result
+        except Exception as e:
+            return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True, "error": str(e)}
 
     def random_team():
         locked = list(lock_set)
@@ -327,7 +362,32 @@ def run_optimizer(
         if stop_flag[0]:
             break
 
-        scores = [fitness(ind) for ind in population]
+        # Evaluate population in parallel — 4 GCSim processes at once
+        scores = [None] * len(population)
+        done_count = 0
+        with ThreadPoolExecutor(max_workers=2) as pool:  # 2 keeps Streamlit Cloud stable
+            fut_map = {pool.submit(fitness, ind): i for i, ind in enumerate(population)}
+            for fut in as_completed(fut_map):
+                scores[fut_map[fut]] = fut.result()
+                done_count += 1
+                if progress_callback and done_count % 5 == 0:
+                    # Send lightweight per-individual update every 5 completions
+                    best_so_far = max(
+                        (s for s in scores if s is not None),
+                        key=lambda s: s["dps"],
+                        default={"dps": 0.0, "max_hit": 0.0, "sd": 0.0},
+                    )
+                    progress_callback(
+                        gen + 1, generations, best_so_far,
+                        [], [], configs,
+                        {"individuals_done": done_count, "individuals_total": len(population)},
+                    )
+        
+        # ✅ Replace errored individuals
+        for i, score in enumerate(scores):
+            if score.get("errored", False):
+                population[i] = random_team()
+                scores[i] = fitness(population[i])
 
         if pareto:
             for team, obj in zip(population, scores):
@@ -335,9 +395,15 @@ def run_optimizer(
                 if not dominated:
                     pareto_archive = [(t, o) for t, o in pareto_archive if not _dominates(obj, o)]
                     pareto_archive.append((team, obj))
+                    # Cap archive size to keep dominance checks fast
+                    if len(pareto_archive) > 100:
+                        pareto_archive.sort(key=lambda x: x[1]["dps"], reverse=True)
+                        pareto_archive = pareto_archive[:100]
 
         fitness_vals = [s['dps'] for s in scores]
         best_idx = fitness_vals.index(max(fitness_vals))
+        if scores[best_idx].get("stopped", False):
+            break
         if scores[best_idx]['dps'] > best_overall[1]['dps']:
             best_overall = (population[best_idx], scores[best_idx])
 
@@ -345,7 +411,10 @@ def run_optimizer(
         top5 = [(population[i], scores[i]) for i in top5_indices]
 
         if progress_callback:
-            progress_callback(gen + 1, generations, best_overall[1], top5, pareto_archive, configs)
+            progress_callback(
+                gen + 1, generations, best_overall[1], top5, pareto_archive, configs,
+                {"individuals_done": len(population), "individuals_total": len(population)},
+            )
 
         # Evolve
         elite_count = max(1, int(population_size * 0.2))

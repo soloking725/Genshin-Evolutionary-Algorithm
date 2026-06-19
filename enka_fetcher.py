@@ -5,9 +5,26 @@ No account credentials are needed — Enka Network only reads data from public
 Genshin Impact showcases (characters the player has opted to display).
 """
 import asyncio
-from collections import Counter, OrderedDict
+import os
+import ssl
+from collections import Counter
 
 import pandas as pd
+
+# On Mac, Python doesn't use the system certificate store by default.
+# Point aiohttp (used by the enka library) at certifi's bundle instead.
+try:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE",      certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+except ImportError:
+    pass
+
+try:
+    from character_icons import get_icon_url as _get_icon_url
+except ImportError:
+    def _get_icon_url(name: str, circle: bool = True) -> str:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +77,7 @@ def _artifact_set_bonus(names: list) -> str:
 
 
 async def _async_fetch(uid: int) -> tuple[pd.DataFrame, dict]:
-    import enka  # imported here so it's optional at module level
+    import enka
 
     # Fight-prop → column name mapping
     STAT_MAP = {
@@ -86,6 +103,7 @@ async def _async_fetch(uid: int) -> tuple[pd.DataFrame, dict]:
         enka.gi.FightPropType.FIGHT_PROP_DEFENSE: 2002,
     }
 
+    # ✅ Header includes "Icon URL"
     header = [
         "UID", "Player Nickname", "Player Level", "Player Signature",
         "Character Name", "Character Level", "Character Ascension",
@@ -94,6 +112,7 @@ async def _async_fetch(uid: int) -> tuple[pd.DataFrame, dict]:
         "Weapon Refinement", "Weapon Stars",
         "Talent NA Level", "Talent Skill Level", "Talent Burst Level",
         *STAT_MAP.values(),
+        "Icon URL",          # <-- This column will store the image URL
         "Artifact Set Bonus",
     ]
     for i in range(1, 6):
@@ -105,6 +124,22 @@ async def _async_fetch(uid: int) -> tuple[pd.DataFrame, dict]:
         ])
 
     async with enka.GenshinClient(enka.gi.Language.ENGLISH) as client:
+        # update_assets() is REQUIRED — the library cannot map character IDs to
+        # names or stats without it. Retry once on failure before giving up.
+        import asyncio as _asyncio
+        try:
+            await client.update_assets()
+        except Exception as _e1:
+            try:
+                await _asyncio.sleep(1)
+                await client.update_assets()
+            except Exception as _e2:
+                raise RuntimeError(
+                    f"Could not load Enka asset data: {_e2}. "
+                    "Check your internet connection. "
+                    "On Mac this is often an SSL certificate issue — "
+                    "try running: pip install certifi"
+                ) from _e2
         response = await client.fetch_showcase(uid)
 
         player_info = {
@@ -120,6 +155,22 @@ async def _async_fetch(uid: int) -> tuple[pd.DataFrame, dict]:
             weapon = character.weapon
             talents = character.talents
 
+            # ── Get the icon URL ─────────────────────────────────────────
+            # Primary: hardcoded mapping (instant, no network, works everywhere)
+            # Fallback: enka library's Icon object (requires update_assets())
+            icon_url = _get_icon_url(char_name, circle=True)
+            if not icon_url:
+                # fallback: try the enka Icon object after update_assets()
+                try:
+                    icon = character.icon
+                    for candidate in (icon.circle, icon.front, icon.side):
+                        if candidate and "UI_" in candidate:
+                            icon_url = candidate
+                            break
+                except Exception:
+                    pass
+
+            # ── Build the row ─────────────────────────────────────────────
             row = [
                 str(uid),
                 response.player.nickname,
@@ -175,7 +226,11 @@ async def _async_fetch(uid: int) -> tuple[pd.DataFrame, dict]:
                     artifact_set_names.append("")
                     artifact_details.append(["", "", "", "", "", "", "", ""])
 
+            # ✅ Append Icon URL and Set Bonus (in correct order)
+            row.append(icon_url)
             row.append(_artifact_set_bonus(artifact_set_names))
+
+            # Append artifact details
             for details in artifact_details:
                 row.extend(details)
 
