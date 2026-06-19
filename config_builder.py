@@ -206,7 +206,9 @@ def _accumulate_artifact_stats(row: pd.Series, char_label: str, warnings: list) 
         main_type = row.get(f'Artifact {i} Main Stat Type')
         main_val = row.get(f'Artifact {i} Main Stat Value')
         if pd.notna(main_type) and pd.notna(main_val):
-            add(str(main_type), float(main_val))
+            # ✅ Skip empty strings
+            if str(main_val).strip() != "":
+                add(str(main_type), float(main_val))
         for j in range(1, 5):
             sub = row.get(f'Artifact {i} Sub {j}')
             if pd.notna(sub):
@@ -219,7 +221,6 @@ def _accumulate_artifact_stats(row: pd.Series, char_label: str, warnings: list) 
     if unknown_types:
         warnings.append(f"{char_label}: ignored unrecognized stat entries {sorted(unknown_types)}")
     return totals
-
 
 # ── Main public function ──────────────────────────────────────────────────
 
