@@ -300,10 +300,13 @@ def char_card(row):
 
 def _merge_df(existing, new_df, keep="last"):
     """
-    keep='last'  → new data overwrites existing (fetch, merge).
-    keep='first' → existing data is kept (CSV upload without overwrite).
+    Merge two DataFrames on (UID, Character Name).
+    keep='last'  → new data overwrites existing (default for +Merge and CSV overwrite).
+    keep='first' → existing data is kept (CSV without overwrite).
     """
     combined = pd.concat([existing, new_df], ignore_index=True)
+    # Normalise UID to string and Character Name to stripped string so that
+    # "618867267", 618867267, and "618867267.0" all match each other.
     combined["UID"] = combined["UID"].astype(str).str.strip().str.split(".").str[0]
     combined["Character Name"] = combined["Character Name"].astype(str).str.strip()
     return combined.drop_duplicates(
@@ -360,10 +363,12 @@ with st.sidebar:
                 new_df, info = fetch_characters(int(uid_input.strip()))
                 existing = st.session_state.characters_df
                 if add_clicked and existing is not None:
-                    merged = _merge_df(existing, new_df)
+                    # Merge: new data overwrites existing rows (keep='last')
+                    merged = _merge_df(existing, new_df, keep="last")
                     st.session_state.characters_df = merged
                     st.success(f"Merged — total **{len(merged)}** characters.")
                 else:
+                    # Fetch: replace entirely
                     if existing is not None and len(existing) > 0:
                         st.warning(
                             f"⚠️ **Fetch replaced** {len(existing)} previously loaded "
@@ -396,20 +401,17 @@ with st.sidebar:
         key="csv_overwrite_toggle",
     )
     csv_file = st.file_uploader("…or upload CSV", type=["csv"],
-                             disabled=st.session_state.opt_running)
+                                 disabled=st.session_state.opt_running)
     if csv_file is not None:
         try:
             new_df = pd.read_csv(csv_file)
             existing = st.session_state.characters_df
-            overwrite = _csv_overwrite
-
+            keep = "last" if _csv_overwrite else "first"
             if existing is not None:
-                # Use keep='last' if overwrite is True, else keep='first'
-                merged = _merge_df(existing, new_df, keep="last" if overwrite else "first")
+                merged = _merge_df(existing, new_df, keep=keep)
                 st.session_state.characters_df = merged
                 st.success(f"CSV merged — total **{len(merged)}** characters.")
             else:
-                # No existing data – just load the CSV as the new roster
                 st.session_state.characters_df = new_df
                 st.session_state.player_info = {
                     "nickname": str(new_df.get("Player Nickname", ["CSV"]).iloc[0]),
