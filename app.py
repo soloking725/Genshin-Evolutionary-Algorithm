@@ -154,6 +154,24 @@ st.markdown("""
 
 /* ── Section divider ───────────────────────────────────────────────── */
 hr { border-color: var(--gold-border) !important; }
+
+/* ── Mobile responsive: 2-column character grid on narrow screens ───── */
+@media screen and (max-width: 640px) {
+    /* Streamlit uses data-testid="stHorizontalBlock" for st.columns() */
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        min-width: calc(50% - 0.5rem) !important;
+        max-width: 50% !important;
+        flex: 0 0 50% !important;
+    }
+    /* Sidebar full-width on mobile */
+    section[data-testid="stSidebar"] {
+        width: 100% !important;
+        min-width: 100% !important;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -171,6 +189,7 @@ DEFAULTS = {
     "best_obj": None,
     "pareto_summary": None,
     "pareto_configs": None,
+    "dps_history":    [],          # [{gen, dps, max_hit}] for live chart
     "best_config": None,
     "warnings": [],
     "abyss_result": None,
@@ -344,6 +363,11 @@ with st.sidebar:
                     st.session_state.characters_df = merged
                     st.success(f"Merged — total **{len(merged)}** characters.")
                 else:
+                    if existing is not None and len(existing) > 0:
+                        st.warning(
+                            f"⚠️ **Fetch replaced** {len(existing)} previously loaded "
+                            "character(s). Use **＋ Merge** next time to add without replacing."
+                        )
                     st.session_state.characters_df = new_df
                     st.session_state.player_info = info
                     st.success(f"Loaded **{len(new_df)}** characters for **{info['nickname']}**.")
@@ -360,21 +384,23 @@ with st.sidebar:
                     hint = " (UID not found or showcase is private)"
                 st.error(f"Fetch failed: {e}{hint}")
 
+    # Overwrite toggle must appear BEFORE the uploader so users see it
+    # before dropping a file (Streamlit processes uploads immediately).
+    _csv_overwrite = st.checkbox(
+        "Overwrite existing characters with CSV data",
+        value=False,
+        help="If checked, the CSV replaces matching characters. "
+             "If unchecked, existing characters are kept and only new ones are added.",
+        disabled=st.session_state.opt_running,
+        key="csv_overwrite_toggle",
+    )
     csv_file = st.file_uploader("…or upload CSV", type=["csv"],
                              disabled=st.session_state.opt_running)
     if csv_file is not None:
         try:
             new_df = pd.read_csv(csv_file)
             existing = st.session_state.characters_df
-
-            # Add a checkbox to let user decide whether to overwrite existing data
-            overwrite = st.checkbox(
-                "Overwrite existing characters with CSV data",
-                value=False,
-                help="If checked, the CSV will replace any existing characters. "
-                    "If unchecked, only new characters (not already in the roster) will be added.",
-                disabled=st.session_state.opt_running
-            )
+            overwrite = _csv_overwrite
 
             if existing is not None:
                 # Use keep='last' if overwrite is True, else keep='first'
@@ -465,6 +491,20 @@ with st.sidebar:
                 disabled=st.session_state.opt_running,
                 help="These characters will always appear in every team.",
             )
+    # Warn if any locked character is not in GCSim's known roster
+    if lock_chars and st.session_state.characters_df is not None:
+        _df_check = st.session_state.characters_df
+        for _lc in lock_chars:
+            _row = _df_check[_df_check["Character Name"] == _lc]
+            if not _row.empty:
+                _gname = to_gcsim_name(_lc, _row.iloc[0], [], {},
+                                       st.session_state.frozen_params.get(
+                                           "traveler_element", "anemo"))
+                if _gname is None:
+                    st.warning(
+                        f"⚠️ **{_lc}** is not yet supported by GCSim "
+                        "and will be skipped if locked. Consider unlocking them."
+                    )
 
         ban_chars = st.multiselect(
             "🚫 Lock OUT (never on team)",
@@ -609,6 +649,7 @@ with st.sidebar:
             # ── Reset progress state ───────────────────────────────────────
             st.session_state.stop_flag     = [False]
             st.session_state.progress_log  = []
+            st.session_state.dps_history   = []
             st.session_state.best_obj      = None
             st.session_state.pareto_summary= None
             st.session_state.pareto_configs= None
@@ -619,6 +660,11 @@ with st.sidebar:
             st.session_state.gen_total     = generations
             st.session_state.status        = "downloading"
             st.session_state.status_msg    = "Downloading GCSim binary (first run only)…"
+            # Kill any previous run to prevent thread accumulation.
+            # (daemon threads survive page refreshes; signal them to stop)
+            if st.session_state.stop_flag is not None:
+                st.session_state.stop_flag[0] = True
+            st.session_state.stop_flag = [False]
             st.session_state.opt_running   = True
 
             # ── Download GCSim in the main thread (thread-safe) ─────────────
@@ -772,6 +818,12 @@ if st.session_state.opt_running:
             st.session_state.best_obj    = best_obj
             st.session_state.status      = "running"
             st.session_state.status_msg  = f"Generation {gen_num} / {gen_total}"
+            if best_obj and best_obj.get("dps", 0) > 0:
+                st.session_state.dps_history.append({
+                    "gen": gen_num,
+                    "dps": best_obj["dps"],
+                    "max_hit": best_obj.get("max_hit", 0),
+                })
 
             # Format top-5 log entry
             t5_lines = []
@@ -883,11 +935,19 @@ if status == "running" and st.session_state.best_obj:
     m2.metric("Best Max Hit", f"{obj['max_hit']:,.0f}")
     m3.metric("Consistency",  f"±{obj['sd']:,.0f} SD")
 
-    log = st.session_state.progress_log[-15:]
-    log_html = "<br>".join(
-        line.replace(" ", "&nbsp;").replace("\n", "<br>") for line in log
-    )
-    st.markdown(f'<div class="gen-log">{log_html}</div>', unsafe_allow_html=True)
+    dps_hist = st.session_state.get("dps_history", [])
+    if len(dps_hist) >= 2:
+        import pandas as _pd
+        _hist_df = _pd.DataFrame(dps_hist).set_index("gen")
+        _hist_df.index.name = "Generation"
+        _hist_df = _hist_df.rename(columns={"dps": "Best DPS", "max_hit": "Best Max Hit"})
+        st.line_chart(_hist_df, height=200, use_container_width=True)
+    else:
+        log = st.session_state.progress_log[-8:]
+        log_html = "<br>".join(
+            line.replace(" ", "&nbsp;").replace("\n", "<br>") for line in log
+        )
+        st.markdown(f'<div class="gen-log">{log_html}</div>', unsafe_allow_html=True)
 
 # ── Schedule next poll while running ─────────────────────────────────────
 # Also rerun once immediately when the optimizer just finished so the sidebar

@@ -86,8 +86,10 @@ def _preset_raiden_hyper(team, active=None):
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
-    body += f'  if .{active}.name == "raiden" {{ {active} attack:15; }}\n'
-    body += f'  else {{ {active} attack; }}\n'
+    if active == "raiden":
+        body += f'  {active} attack:15;\n'
+    else:
+        body += f'  {active} attack;\n'
     return active, body
 
 def _preset_ganyu_aimed(team, active=None):
@@ -96,8 +98,10 @@ def _preset_ganyu_aimed(team, active=None):
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
-    body += f'  if .{active}.name == "ganyu" {{ {active} aim; }}\n'
-    body += f'  else {{ {active} attack; }}\n'
+    if active == "ganyu":
+        body += f'  {active} aim;\n'
+    else:
+        body += f'  {active} attack;\n'
     return active, body
 
 def _preset_wriothesley(team, active=None):
@@ -107,8 +111,10 @@ def _preset_wriothesley(team, active=None):
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
-    body += f'  if .{active}.name == "wriothesley" {{ {active} charge; }}\n'
-    body += f'  else {{ {active} attack; }}\n'
+    if active == "wriothesley":
+        body += f'  {active} charge;\n'
+    else:
+        body += f'  {active} attack;\n'
     return active, body
 
 def _preset_heavy_filler(team, active=None):
@@ -130,18 +136,6 @@ def _preset_burst_skill_weave(team, active=None):
     body += f'  {active} {_filler(active)};\n'
     return active, body
 
-def _preset_national(team, active=None):
-    main_dps, others = team[-1], team[:-1]
-    active = active or team[0]
-    body = ""
-    for n in others:
-        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
-    body += f'  if .{main_dps}.burst.ready {{ {main_dps} burst; }}\n'
-    for n in team:
-        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
-    body += f'  {active} {_filler(active)};\n'
-    return active, body
-
 def _preset_hyperbloom(team, active=None):
     active = active or team[0]
     body = ""
@@ -151,16 +145,6 @@ def _preset_hyperbloom(team, active=None):
     body += f'  {active} {_filler(active)}:6;\n'
     return active, body
 
-def _preset_battery_first(team, active=None):
-    active = active or team[0]
-    body = ""
-    for n in team:
-        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
-    for n in team:
-        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
-    body += f'  {active} {_filler(active)};\n'
-    return active, body
-
 def _preset_melt_ganyu(team, active=None):
     active = active or team[0]
     body = ""
@@ -168,8 +152,10 @@ def _preset_melt_ganyu(team, active=None):
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
-    body += f'  if .{active}.name == "ganyu" {{ {active} aim; }}\n'
-    body += f'  else {{ {active} attack; }}\n'
+    if active == "ganyu":
+        body += f'  {active} aim;\n'
+    else:
+        body += f'  {active} attack;\n'
     return active, body
 
 def _preset_tanky(team, active=None):
@@ -188,8 +174,10 @@ def _preset_kinich(team, active=None):
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
-    body += f'  if .{active}.name == "kinich" {{ {active} attack:4; }}\n'
-    body += f'  else {{ {active} attack; }}\n'
+    if active == "kinich":
+        body += f'  {active} attack:4;\n'
+    else:
+        body += f'  {active} attack;\n'
     return active, body
 
 # ---------- Helper fallback for specialised presets ----------
@@ -523,41 +511,42 @@ def _preset_mavuika_dps(team, active=None):
 # ---------- Full list of presets ----------
 
 ROTATION_PRESETS = [
-    ("standard",            _preset_standard),
-    ("support_first",       _preset_support_first),
-    ("quickswap",           _preset_quickswap),
-    ("raiden_hyper",        _preset_raiden_hyper),
-    ("ganyu_aimed",         _preset_ganyu_aimed),
-    ("wriothesley_charge",  _preset_wriothesley),
-    ("heavy_filler",        _preset_heavy_filler),
-    ("burst_skill_weave",   _preset_burst_skill_weave),
-    ("national",            _preset_national),
-    ("hyperbloom_driver",   _preset_hyperbloom),
-    ("battery_first",       _preset_battery_first),
-    ("melt_ganyu",          _preset_melt_ganyu),
-    ("tanky",               _preset_tanky),
-    ("kinich_skill",        _preset_kinich),
-    # New generic presets
-    ("generic_support_burst",   _preset_generic_support_burst),
-    ("generic_charge_dps",      _preset_generic_charge_dps),
-    ("generic_bond_dps",        _preset_generic_bond_dps),
-    ("generic_aim_dps",         _preset_generic_aim_dps),
-    ("generic_hypercarry",      _preset_generic_hypercarry),
-    ("generic_spread_dps",      _preset_generic_spread_dps),
-    ("generic_freeze",          _preset_generic_freeze),
-    ("generic_charge_loop",     _preset_generic_charge_loop),
-    ("generic_stance_dps",      _preset_generic_stance_dps),
-    ("generic_weave",           _preset_generic_weave),
-    ("generic_nightsoul",       _preset_generic_nightsoul),
-    ("generic_opener",          _preset_generic_opener),
-    ("generic_skirk_alt",       _preset_generic_skirk_alt),
-    # Specialised presets
-    ("mualani_surf",        _preset_mualani_surf),
-    ("wanderer_flight",     _preset_wanderer_flight),
-    ("skirk_weave",         _preset_skirk_weave),
-    ("kinich_dps",          _preset_kinich_dps),
-    ("mavuika_dps",         _preset_mavuika_dps),
+    ("standard",            _preset_standard,               None),
+    ("support_first",       _preset_support_first,          None),
+    ("quickswap",           _preset_quickswap,              None),
+    ("raiden_hyper",        _preset_raiden_hyper,           "raiden"),
+    ("ganyu_aimed",         _preset_ganyu_aimed,            "ganyu"),
+    ("wriothesley_charge",  _preset_wriothesley,            "wriothesley"),
+    ("heavy_filler",        _preset_heavy_filler,           None),
+    ("burst_skill_weave",   _preset_burst_skill_weave,      None),
+    ("hyperbloom_driver",   _preset_hyperbloom,             None),
+    ("melt_ganyu",          _preset_melt_ganyu,             "ganyu"),
+    ("tanky",               _preset_tanky,                  None),
+    ("kinich_skill",        _preset_kinich,                 "kinich"),
+    ("generic_support_burst",   _preset_generic_support_burst,  None),
+    ("generic_charge_dps",      _preset_generic_charge_dps,     None),
+    ("generic_bond_dps",        _preset_generic_bond_dps,       None),
+    ("generic_aim_dps",         _preset_generic_aim_dps,        None),
+    ("generic_hypercarry",      _preset_generic_hypercarry,     None),
+    ("generic_spread_dps",      _preset_generic_spread_dps,     None),
+    ("generic_freeze",          _preset_generic_freeze,         None),
+    ("generic_charge_loop",     _preset_generic_charge_loop,    None),
+    ("generic_stance_dps",      _preset_generic_stance_dps,     None),
+    ("generic_weave",           _preset_generic_weave,          None),
+    ("generic_nightsoul",       _preset_generic_nightsoul,      None),
+    ("generic_opener",          _preset_generic_opener,         None),
+    ("generic_skirk_alt",       _preset_generic_skirk_alt,      None),
+    ("mualani_surf",        _preset_mualani_surf,           "mualani"),
+    ("wanderer_flight",     _preset_wanderer_flight,        "wanderer"),
+    ("skirk_weave",         _preset_skirk_weave,            "skirk"),
+    ("kinich_dps",          _preset_kinich_dps,             "kinich"),
+    ("mavuika_dps",         _preset_mavuika_dps,            "mavuika"),
 ]
+
+
+def _valid_preset_ids(chars):
+    return [i for i, (_, _, req) in enumerate(ROTATION_PRESETS)
+            if req is None or req in chars]
 
 
 def preset_to_tokens(preset_func, team) -> list:
@@ -760,6 +749,8 @@ def run_optimizer(
 
     # ── Inner functions ───────────────────────────────────────────────────
 
+    fitness_cache: dict = {}  # cache keyed by (team_tuple, rot_tuple)
+
     def build_config(individual):
         team, rot = individual
         rot_body = decode_rotation(rot, list(team))
@@ -773,14 +764,17 @@ def run_optimizer(
         cfg += f'active {active};\n\nwhile 1 {{\n{rot_body}}}\n'
         return cfg
 
-    # ✅ Robust fitness with stop flag and error handling
     def fitness(ind):
         if stop_flag[0]:
             return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0, "stopped": True}
+        cache_key = (ind[0], tuple(ind[1]))
+        if cache_key in fitness_cache:
+            return fitness_cache[cache_key]
         try:
             result = run_gcsim(build_config(ind), gcsim_bin, sim_iterations, sim_duration)
             if "error" in result and result["error"]:
                 return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True}
+            fitness_cache[cache_key] = result
             return result
         except Exception as e:
             return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True, "error": str(e)}
@@ -801,13 +795,9 @@ def run_optimizer(
         random.shuffle(team)
         team = tuple(team)
 
-        if random.random() < 0.8:
-            preset_func = random.choice(ROTATION_PRESETS)[1]
-            rot = preset_to_tokens(preset_func, list(team))
-        else:
-            length = random.randint(5, MAX_ROT_LEN)
-            rot = [_random_token() for _ in range(length)]
-            rot += [NOOP_TOKEN] * (MAX_ROT_LEN - length)
+        length = random.randint(5, MAX_ROT_LEN)
+        rot = [_random_token() for _ in range(length)]
+        rot += [NOOP_TOKEN] * (MAX_ROT_LEN - length)
         return (team, rot)
 
     def tournament(population, scores):
