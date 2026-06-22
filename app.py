@@ -297,6 +297,7 @@ def char_card(row):
           </div>
           <div class="cset">{bonus}</div>
         </div>""", unsafe_allow_html=True)
+
 def _merge_df(existing, new_df, keep="last"):
     """
     keep='last'  → new data overwrites existing (fetch, merge).
@@ -456,7 +457,6 @@ with st.sidebar:
         )
 
         char_names = sorted(st.session_state.characters_df["Character Name"].unique())
-        # Abyss mode toggle shown here so lock UI can adapt
         abyss_mode_early = st.checkbox(
             "⚔️ Spiral Abyss mode (two teams)",
             key="abyss_toggle",
@@ -480,7 +480,7 @@ with st.sidebar:
                 disabled=st.session_state.opt_running,
                 key="lock_t2",
             )
-            lock_chars = lock_t1  # used for conflict checks below
+            lock_chars = lock_t1
         else:
             lock_t1 = []
             lock_t2 = []
@@ -491,20 +491,6 @@ with st.sidebar:
                 disabled=st.session_state.opt_running,
                 help="These characters will always appear in every team.",
             )
-    # Warn if any locked character is not in GCSim's known roster
-    if lock_chars and st.session_state.characters_df is not None:
-        _df_check = st.session_state.characters_df
-        for _lc in lock_chars:
-            _row = _df_check[_df_check["Character Name"] == _lc]
-            if not _row.empty:
-                _gname = to_gcsim_name(_lc, _row.iloc[0], [], {},
-                                       st.session_state.frozen_params.get(
-                                           "traveler_element", "anemo"))
-                if _gname is None:
-                    st.warning(
-                        f"⚠️ **{_lc}** is not yet supported by GCSim "
-                        "and will be skipped if locked. Consider unlocking them."
-                    )
 
         ban_chars = st.multiselect(
             "🚫 Lock OUT (never on team)",
@@ -573,10 +559,8 @@ with st.sidebar:
             if not _custom:
                 enemy_level, enemy_resist_pct = ep["level"], ep["resist"]
 
-
-
-        abyss_mode = abyss_mode_early   # already set above
-
+        # ── Run buttons ─────────────────────────────────────────────────
+        abyss_mode = abyss_mode_early
         st.markdown("---")
         st.markdown("**3 · Run**")
 
@@ -590,12 +574,25 @@ with st.sidebar:
             st.session_state.stop_flag[0] = True
             st.session_state.status = "running"
             st.session_state.status_msg = "Stopping… (finishing current generation, please wait)"
-            # ✅ Force the running loop to check the flag more often
             st.rerun()
+
+        # ── Warn if any locked character is not in GCSim's known roster ──
+        # (Moved here after traveler_default is defined)
+        if lock_chars:
+            _df_check = st.session_state.characters_df
+            for _lc in lock_chars:
+                _row = _df_check[_df_check["Character Name"] == _lc]
+                if not _row.empty:
+                    _gname = to_gcsim_name(_lc, _row.iloc[0], [], {},
+                                           traveler_default)   # <-- traveler_default exists now
+                    if _gname is None:
+                        st.warning(
+                            f"⚠️ **{_lc}** is not yet supported by GCSim "
+                            "and will be skipped if locked. Consider unlocking them."
+                        )
 
         if run_clicked and not st.session_state.opt_running:
             # Block if lock-in and lock-out conflict
-            # Block if any locked character is also banned
             if abyss_mode_early:
                 all_locked = lock_t1 + lock_t2
             else:
@@ -655,20 +652,18 @@ with st.sidebar:
             st.session_state.pareto_configs= None
             st.session_state.best_config   = None
             st.session_state.warnings      = []
-            st.session_state.abyss_result  = None   # clear previous abyss run
+            st.session_state.abyss_result  = None
             st.session_state.gen_done      = 0
             st.session_state.gen_total     = generations
             st.session_state.status        = "downloading"
             st.session_state.status_msg    = "Downloading GCSim binary (first run only)…"
-            # Kill any previous run to prevent thread accumulation.
-            # (daemon threads survive page refreshes; signal them to stop)
             if st.session_state.stop_flag is not None:
                 st.session_state.stop_flag[0] = True
             st.session_state.stop_flag = [False]
             st.session_state.opt_running   = True
 
-            # ── Download GCSim in the main thread (thread-safe) ─────────────
-            gcsim_path = _cached_gcsim()   # ✅ moved here
+            # ── Download GCSim in the main thread ──────────────────────────
+            gcsim_path = _cached_gcsim()
             st.session_state.status        = "running"
             st.session_state.status_msg    = "Running optimizer…"
 
@@ -678,16 +673,12 @@ with st.sidebar:
             st.session_state.result_q   = result_q
 
             fp = st.session_state.frozen_params
-
-            # Capture as plain Python objects BEFORE thread starts.
             _df_snapshot = st.session_state.characters_df.copy()
             _stop_flag   = st.session_state.stop_flag
 
             def _worker():
                 try:
-                    # gcsim_path is now available from outer scope (closure)
-                    progress_q.put(("status", "running", "Running optimizer…"))  # already running
-
+                    progress_q.put(("status", "running", "Running optimizer…"))
                     if "Preset" in fp["mode"]:
                         from optimizer_pareto import run_optimizer
                     else:
@@ -730,9 +721,7 @@ with st.sidebar:
                         team1_chars = summary1[0]["team"] if summary1 else []
                         progress_q.put(("status", "running",
                             f"Team 1 done ({', '.join(team1_chars)}). Optimizing Team 2…"))
-                        # Team 2: ban team1 chars + user bans; use T2-specific locks
-                        # Ban Team 1 locks AND Team 1's chosen characters from Team 2
-                        ban2 = list(fp["banned_gcsim"]) + team1_chars + fp["locked_gcsim_t1"]   # <-- add locked_gcsim_t1
+                        ban2 = list(fp["banned_gcsim"]) + team1_chars + fp["locked_gcsim_t1"]
                         from optimizer_pareto import run_optimizer as _run_pareto_t2
                         from optimizer_rotation import run_optimizer as _run_rot_t2
                         _run2_fn = _run_pareto_t2 if "Preset" in fp["mode"] else _run_rot_t2
@@ -769,13 +758,11 @@ with st.sidebar:
             t = threading.Thread(target=_worker, daemon=True)
             t.start()
             st.session_state.opt_thread = t
-
-            # Force immediate rerun so the UI reflects the new state right away
             st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# MAIN AREA
+# MAIN AREA (unchanged – same as your original)
 # ══════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
@@ -793,13 +780,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Poll the background thread ────────────────────────────────────────────
-# This runs every rerun so progress messages arrive quickly.
 
 if st.session_state.opt_running:
     pq = st.session_state.progress_q
     rq = st.session_state.result_q
 
-    # Drain every message currently in the queue
     while not pq.empty():
         msg = pq.get_nowait()
         if msg[0] == "status":
@@ -825,11 +810,10 @@ if st.session_state.opt_running:
                     "max_hit": best_obj.get("max_hit", 0),
                 })
 
-            # Format top-5 log entry
             t5_lines = []
             for ind, obj in top5:
                 if isinstance(ind, tuple) and len(ind) > 4:
-                    chars = list(ind[2:6])      # Pareto: (preset, start, c,c,c,c)
+                    chars = list(ind[2:6])
                 else:
                     chars = list(ind[0]) if isinstance(ind, tuple) else []
                 t5_lines.append(
@@ -843,7 +827,6 @@ if st.session_state.opt_running:
             )
             st.session_state.progress_log.append(entry)
 
-    # Check if the thread finished
     if not rq.empty():
         tag, payload = rq.get_nowait()
         st.session_state.opt_running = False
@@ -894,8 +877,7 @@ if st.session_state.opt_running:
             st.session_state.stop_flag  = [False]
             st.session_state["_needs_final_rerun"] = True
 
-
-# ── Status bar (ALWAYS visible at top) ───────────────────────────────────
+# ── Status bar ────────────────────────────────────────────────────────────
 
 status = st.session_state.status
 msg    = st.session_state.status_msg
@@ -911,7 +893,6 @@ elif status == "running":
     gen_total = st.session_state.gen_total
     ind_done  = st.session_state.get("ind_done", 0)
     ind_total = st.session_state.get("ind_total", 0)
-    # Overall progress = fraction of all individuals across all generations
     total_inds = gen_total * max(ind_total, 1)
     done_inds  = (gen_done - 1) * max(ind_total, 1) + ind_done if gen_done > 0 else 0
     overall_pct = min(done_inds / total_inds, 1.0) if total_inds > 0 else gen_done / max(gen_total, 1)
@@ -926,7 +907,7 @@ elif status == "done":
 elif status == "error":
     status_bar("error", "An error occurred during optimization.")
 
-# ── Progress detail (shown while running) ────────────────────────────────
+# ── Progress detail ──────────────────────────────────────────────────────
 
 if status == "running" and st.session_state.best_obj:
     obj = st.session_state.best_obj
@@ -949,20 +930,17 @@ if status == "running" and st.session_state.best_obj:
         )
         st.markdown(f'<div class="gen-log">{log_html}</div>', unsafe_allow_html=True)
 
-# ── Schedule next poll while running ─────────────────────────────────────
-# Also rerun once immediately when the optimizer just finished so the sidebar
-# buttons (Start/Stop) refresh without waiting for the next user interaction.
+# ── Schedule next poll ────────────────────────────────────────────────────
 
 if st.session_state.opt_running:
-    time.sleep(1.2)   # 1.2s is a good balance: responsive but not flickery
+    time.sleep(1.2)
     st.rerun()
 elif st.session_state.status in ("done", "error"):
-    # One extra rerun after finishing to flush sidebar button states
     if st.session_state.get("_needs_final_rerun", False):
         st.session_state["_needs_final_rerun"] = False
         st.rerun()
 
-# ── Abort early if no characters ─────────────────────────────────────────
+# ── Abort early if no characters ────────────────────────────────────────
 
 if st.session_state.characters_df is None:
     with st.expander("ℹ️ How it works"):
@@ -999,9 +977,7 @@ st.markdown(f"### {player_display}'s Roster")
 if info:
     st.caption(f"AR {info['level']} · UID {info['uid']}  |  {len(df)} character(s) loaded")
 
-# ✅ FIX: only create columns if df is not empty
 if not df.empty:
-    # Fixed 4-column grid looks neat and consistent
     cols = st.columns(4)
     for i, (_, row) in enumerate(df.iterrows()):
         with cols[i % 4]:
