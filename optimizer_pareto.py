@@ -15,6 +15,8 @@ from gcsim_manager import run_gcsim, GCSIM_PATH
 
 # ── Rotation presets ──────────────────────────────────────────────────────
 
+# ── Rotation presets ──────────────────────────────────────────────────────
+
 FILLER_ACTION = {'ganyu': 'aim', 'neuvillette': 'charge'}
 
 def _filler(active):
@@ -23,7 +25,8 @@ def _filler(active):
 # ---------- Existing generic presets (already safe) ----------
 
 def _preset_standard(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -31,7 +34,8 @@ def _preset_standard(team, active=None):
     return active, body
 
 def _preset_support_first(team, active=None):
-    main_dps, others = team[-1], team[:-1]; active = active or team[0]
+    main_dps, others = team[-1], team[:-1]
+    active = active or team[0]
     body = ""
     for n in others:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
@@ -42,7 +46,8 @@ def _preset_support_first(team, active=None):
     return active, body
 
 def _preset_quickswap(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
@@ -51,7 +56,8 @@ def _preset_quickswap(team, active=None):
     return active, body
 
 def _preset_raiden_hyper(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
@@ -61,7 +67,8 @@ def _preset_raiden_hyper(team, active=None):
     return active, body
 
 def _preset_ganyu_aimed(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -70,7 +77,8 @@ def _preset_ganyu_aimed(team, active=None):
     return active, body
 
 def _preset_wriothesley(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
     for n in team:
@@ -80,7 +88,8 @@ def _preset_wriothesley(team, active=None):
     return active, body
 
 def _preset_heavy_filler(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
     for n in team:
@@ -89,7 +98,8 @@ def _preset_heavy_filler(team, active=None):
     return active, body
 
 def _preset_burst_skill_weave(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -97,7 +107,8 @@ def _preset_burst_skill_weave(team, active=None):
     return active, body
 
 def _preset_national(team, active=None):
-    main_dps, others = team[-1], team[:-1]; active = active or team[0]
+    main_dps, others = team[-1], team[:-1]
+    active = active or team[0]
     body = ""
     for n in others:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
@@ -108,7 +119,8 @@ def _preset_national(team, active=None):
     return active, body
 
 def _preset_hyperbloom(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -116,7 +128,8 @@ def _preset_hyperbloom(team, active=None):
     return active, body
 
 def _preset_battery_first(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
@@ -125,7 +138,8 @@ def _preset_battery_first(team, active=None):
     return active, body
 
 def _preset_melt_ganyu(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
     for n in team:
@@ -135,7 +149,8 @@ def _preset_melt_ganyu(team, active=None):
     return active, body
 
 def _preset_tanky(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
         body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -143,7 +158,8 @@ def _preset_tanky(team, active=None):
     return active, body
 
 def _preset_kinich(team, active=None):
-    active = active or team[0]; body = ""
+    active = active or team[0]
+    body = ""
     for n in team:
         body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
     for n in team:
@@ -164,7 +180,7 @@ def _generic_dps_fallback(team, active_char):
     body += f'    {active_char} attack:6;\n'
     body += f'    if .{active_char}.burst.ready {{ {active_char} burst; }}\n'
     body += "  }\n"
-    return body
+    return active_char, body   # <-- tuple
 
 # ---------- New generic presets (character‑agnostic) ----------
 
@@ -177,7 +193,7 @@ def _preset_generic_support_burst(team, active_char):
     body += f'  if .{active_char}.skill.ready {{ {active_char} skill; }}\n'
     body += f'  if .{active_char}.burst.ready {{ {active_char} burst; }}\n'
     body += f'  {active_char} attack;\n'
-    return body
+    return active_char, body
 
 def _preset_generic_charge_dps(team, active_char):
     body = f"  for let i=0; i<4; i=i+1 {{\n"
@@ -194,7 +210,7 @@ def _preset_generic_charge_dps(team, active_char):
     body += f'    {active_char} charge:2;\n'
     body += f'    delay(18);\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_bond_dps(team, active_char):
     body = f"  for let i=0; i<4; i=i+1 {{\n"
@@ -208,7 +224,7 @@ def _preset_generic_bond_dps(team, active_char):
     body += f'    {active_char} attack:6;\n'
     body += f'    {active_char} attack:3;\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_aim_dps(team, active_char):
     body = f"  for let r=0; r<4; r=r+1 {{\n"
@@ -222,7 +238,7 @@ def _preset_generic_aim_dps(team, active_char):
     body += f'    {active_char} aim[bullets=4];\n'
     body += f'  }}\n'
     body += f'  wait(82);\n'
-    return body
+    return active_char, body
 
 def _preset_generic_hypercarry(team, active_char):
     body = f"  {active_char} skill;\n"
@@ -239,7 +255,7 @@ def _preset_generic_hypercarry(team, active_char):
     body += f'    {active_char} attack:1;\n'
     body += f'    {active_char} skill;\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_spread_dps(team, active_char):
     body = f"  for let i=0; i<4; i=i+1 {{\n"
@@ -257,7 +273,7 @@ def _preset_generic_spread_dps(team, active_char):
     body += f'    {active_char} attack:3; {active_char} charge;\n'
     body += f'    {active_char} attack:3;\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_freeze(team, active_char):
     body = f"  for let i=0; i<4; i=i+1 {{\n"
@@ -272,7 +288,7 @@ def _preset_generic_freeze(team, active_char):
     body += f'    if .{active_char}.skill.ready {{ {active_char} skill; }}\n'
     body += f'    {active_char} aim:5;\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_charge_loop(team, active_char):
     body = f"  for let i=0; i<4; i=i+1 {{\n"
@@ -285,7 +301,7 @@ def _preset_generic_charge_loop(team, active_char):
     body += f'    {active_char} charge; {active_char} skill; {active_char} charge; {active_char} burst;\n'
     body += f'    {active_char} charge:2;\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_stance_dps(team, active_char):
     body = f"  for let i=0; i<4; i=i+1 {{\n"
@@ -299,7 +315,7 @@ def _preset_generic_stance_dps(team, active_char):
     body += f'      else {{ {active_char} attack; }}\n'
     body += f'    }}\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_weave(team, active_char):
     body = f"  for let i=0; i<6; i=i+1 {{\n"
@@ -320,9 +336,10 @@ def _preset_generic_weave(team, active_char):
     body += f'    if .{active_char}.burst.ready {{ {active_char} burst; }}\n'
     body += f'    {active_char} attack:2;\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_nightsoul(team, active_char):
+    # Fixed: use 'nightsoul' (not 'nationsoul')
     body = f"  {active_char} skill;\n"
     body += f"  for let c=0; c<5; c=c+1 {{\n"
     body += f"    {active_char} attack[direction=1]:2;\n"
@@ -333,7 +350,7 @@ def _preset_generic_nightsoul(team, active_char):
     body += f"      {active_char} skill[hold=1];\n"
     body += f"    }}\n"
     body += f"  }}\n"
-    return body
+    return active_char, body
 
 def _preset_generic_opener(team, active_char):
     body = f"  for let i=0; i<4; i=i+1 {{\n"
@@ -347,7 +364,7 @@ def _preset_generic_opener(team, active_char):
     body += f'    if .{active_char}.burst.ready {{ {active_char} burst; }}\n'
     body += f'    {active_char} attack;\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 def _preset_generic_skirk_alt(team, active_char):
     body = f"  for let i=0; i<4; i=i+1 {{\n"
@@ -364,7 +381,7 @@ def _preset_generic_skirk_alt(team, active_char):
     body += f'    {active_char} attack:5; {active_char} dash;\n'
     body += f'    {active_char} attack:2;\n'
     body += f'  }}\n'
-    return body
+    return active_char, body
 
 # ---------- Specialised presets with fallback ----------
 
@@ -379,7 +396,7 @@ def _preset_mualani_surf(team, active_char):
         body += '    mualani charge:3;\n'
         body += '    if .mualani.burst.ready { mualani burst; }\n'
         body += "  }\n"
-        return body
+        return active_char, body
     else:
         return _generic_dps_fallback(team, active_char)
 
@@ -395,7 +412,7 @@ def _preset_wanderer_flight(team, active_char):
         body += '    wanderer charge;\n'
         body += '    if .wanderer.burst.ready { wanderer burst; }\n'
         body += "  }\n"
-        return body
+        return active_char, body
     else:
         return _generic_dps_fallback(team, active_char)
 
@@ -408,13 +425,15 @@ def _preset_skirk_weave(team, active_char):
                 body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
         body += '    if .skirk.skill.ready { skirk skill; }\n'
         body += '    skirk attack:2; skirk charge; skirk dash;\n'
-        body += '    skirk attack:5; skirk dash;\n' * 3  # repeat 3 times
+        body += '    skirk attack:5; skirk dash;\n'
+        body += '    skirk attack:5; skirk dash;\n'
+        body += '    skirk attack:5; skirk dash;\n'
         body += '    skirk attack:2; skirk charge; skirk dash;\n'
         body += '    skirk attack:5; skirk dash;\n'
         body += '    skirk attack:2;\n'
         body += '    if .skirk.burst.ready { skirk burst; }\n'
         body += "  }\n"
-        return body
+        return active_char, body
     else:
         return _generic_dps_fallback(team, active_char)
 
@@ -445,10 +464,11 @@ def _preset_kinich_dps(team, active_char):
                 body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
                 body += f'    {n} attack;\n'
         body += "  }\n"
-        return body
+        return active_char, body
     else:
         return _generic_dps_fallback(team, active_char)
-    
+
+# ---------- Mavuika-specific preset (added) ----------
 def _preset_mavuika_dps(team, active_char):
     if "mavuika" in team:
         body = "  for let i=0; i<4; i=i+1 {\n"
@@ -458,11 +478,11 @@ def _preset_mavuika_dps(team, active_char):
                 body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
         body += '    if .mavuika.skill.ready { mavuika skill; }\n'
         body += '    if .mavuika.burst.ready { mavuika burst; }\n'
-        body += '    mavuika charge:8;\n'  # Optimal Mavuika combo
+        body += '    mavuika charge:8;\n'
         body += '    mavuika charge; mavuika charge[final=1]; mavuika dash;\n'
         body += '    mavuika charge:2;\n'
         body += "  }\n"
-        return body
+        return active_char, body
     else:
         return _generic_dps_fallback(team, active_char)
 
@@ -503,7 +523,7 @@ ROTATION_PRESETS = [
     ("wanderer_flight",     _preset_wanderer_flight),
     ("skirk_weave",         _preset_skirk_weave),
     ("kinich_dps",          _preset_kinich_dps),
-    ("mavuika_dps", _preset_mavuika_dps),
+    ("mavuika_dps",         _preset_mavuika_dps),   # added
 ]
 
 # ── EA helpers ────────────────────────────────────────────────────────────
