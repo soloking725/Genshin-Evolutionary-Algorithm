@@ -13,18 +13,10 @@ from gcsim_manager import run_gcsim, GCSIM_PATH
 
 # ── Rotation presets ──────────────────────────────────────────────────────
 
-# ── Rotation presets ──────────────────────────────────────────────────────
-
-# ── Rotation presets ──────────────────────────────────────────────────────
-
-# ── Rotation presets ──────────────────────────────────────────────────────
-
 FILLER_ACTION = {'ganyu': 'aim', 'neuvillette': 'charge'}
 
 def _filler(active):
     return FILLER_ACTION.get(active, 'attack')
-
-# ---------- Existing generic presets (unchanged) ----------
 
 def _preset_standard(team, active=None):
     active = active or team[0]
@@ -341,7 +333,6 @@ def _preset_generic_weave(team, active=None):
 
 def _preset_generic_nightsoul(team, active=None):
     active = active or team[0]
-    # Fixed: use 'nightsoul' (not 'nationsoul')
     body = f"  {active} skill;\n"
     body += f"  for let c=0; c<5; c=c+1 {{\n"
     body += f"    {active} attack[direction=1]:2;\n"
@@ -447,7 +438,6 @@ def _preset_skirk_weave(team, active=None):
 def _preset_kinich_dps(team, active=None):
     active = active or team[0]
     if "kinich" in team:
-        # fn definitions are invalid inside while 1{} in GCSim — inline the combo instead
         body = "  for let i=0; i<4; i=i+1 {\n"
         for n in team:
             if n != "kinich":
@@ -468,6 +458,7 @@ def _preset_kinich_dps(team, active=None):
         return active, body
     else:
         return _generic_dps_fallback(team, active)
+
 def _preset_mavuika_dps(team, active=None):
     active = active or team[0]
     if "mavuika" in team:
@@ -490,7 +481,6 @@ def _preset_mavuika_dps(team, active=None):
 
 # (name, func, required_char_or_None)
 # required_char: if set, this preset is only offered to teams containing that character.
-# Eliminates useless evaluations and prevents redundant fallback-only selections.
 ROTATION_PRESETS = [
     ("standard",            _preset_standard,               None),
     ("support_first",       _preset_support_first,          None),
@@ -563,19 +553,12 @@ def run_optimizer(
     traveler_override: dict = None,
     traveler_default: str = "anemo",
     start_energy: int = 100,
-    # ✅ NEW: enemy parameters
     enemy_level: int = 100,
     enemy_resist: float = 0.1,
     pareto: bool = True,
     stop_flag: list = None,
     progress_callback: Callable = None,
 ):
-    """
-    Run the Pareto EA.
-    Calls progress_callback(gen, generations, best_obj, top5, pareto_archive)
-    after each generation.
-    Returns (best_config_str, best_obj, pareto_summary_list).
-    """
     if lock_chars is None:
         lock_chars = []
     if ban_chars is None:
@@ -613,17 +596,14 @@ def run_optimizer(
 
     # ── Inner functions ───────────────────────────────────────────────────
 
-    fitness_cache: dict = {}  # avoids re-running GCSim for identical (team, preset) pairs
-
     def build_config(team_tuple):
         preset_id, start_idx, *chars = team_tuple
+        active = chars[start_idx % len(chars)]
         preset_func = ROTATION_PRESETS[preset_id][1]
-        active = chars[start_idx]
-        _, rotation_body = preset_func(chars, active)  # pass active so filler matches
+        _, rotation_body = preset_func(chars, active=active)
         cfg = (
             f"options iteration={sim_iterations} duration={sim_duration} swap_delay=4;\n"
-            f"target lvl={enemy_level} resist={enemy_resist:.2f} radius=2 pos=0,2.4 hp=999999999;\n"
-            f"energy every interval=480,720 amount=1;\n\n"
+            f"target lvl={enemy_level} resist={enemy_resist:.2f} particle_threshold=250000 particle_drop_count=1;\n\n"
         )
         for name in chars:
             cfg += configs[name] + '\n'
@@ -633,13 +613,10 @@ def run_optimizer(
     def fitness(ind):
         if stop_flag[0]:
             return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0, "stopped": True}
-        if ind in fitness_cache:
-            return fitness_cache[ind]
         try:
             result = run_gcsim(build_config(ind), gcsim_bin, sim_iterations, sim_duration)
             if "error" in result and result["error"]:
                 return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True}
-            fitness_cache[ind] = result
             return result
         except Exception as e:
             return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True, "error": str(e)}
@@ -651,7 +628,8 @@ def run_optimizer(
         others = random.sample(list(all_chars - lock_set), needed)
         chars = locked + others
         random.shuffle(chars)
-        preset = random.choice(_valid_preset_ids(chars))
+        valid = _valid_preset_ids(chars)
+        preset = random.choice(valid) if valid else 0
         start = random.randrange(4)
         return (preset, start) + tuple(chars)
 
@@ -689,7 +667,9 @@ def run_optimizer(
         tl = list(team)
         r = random.random()
         if r < 0.1:
-            tl[0] = random.choice(_valid_preset_ids(tuple(tl[2:6])))
+            valid = _valid_preset_ids(tuple(tl[2:6]))
+            if valid:
+                tl[0] = random.choice(valid)
         elif r < 0.2:
             tl[1] = random.randrange(4)
         else:
@@ -716,16 +696,14 @@ def run_optimizer(
         if stop_flag[0]:
             break
 
-        # Evaluate population in parallel — 4 GCSim processes at once
         scores = [None] * len(population)
         done_count = 0
-        with ThreadPoolExecutor(max_workers=2) as pool:  # 2 keeps Streamlit Cloud stable
+        with ThreadPoolExecutor(max_workers=2) as pool:
             fut_map = {pool.submit(fitness, ind): i for i, ind in enumerate(population)}
             for fut in as_completed(fut_map):
                 scores[fut_map[fut]] = fut.result()
                 done_count += 1
                 if progress_callback and done_count % 5 == 0:
-                    # Send lightweight per-individual update every 5 completions
                     best_so_far = max(
                         (s for s in scores if s is not None),
                         key=lambda s: s["dps"],
@@ -737,7 +715,6 @@ def run_optimizer(
                         {"individuals_done": done_count, "individuals_total": len(population)},
                     )
         
-        # ✅ Replace errored individuals
         for i, score in enumerate(scores):
             if score.get("errored", False):
                 population[i] = random_team()
@@ -749,7 +726,6 @@ def run_optimizer(
                 if not dominated:
                     pareto_archive = [(t, o) for t, o in pareto_archive if not _dominates(obj, o)]
                     pareto_archive.append((team, obj))
-                    # Cap archive size to keep dominance checks fast
                     if len(pareto_archive) > 100:
                         pareto_archive.sort(key=lambda x: x[1]["dps"], reverse=True)
                         pareto_archive = pareto_archive[:100]
@@ -770,7 +746,6 @@ def run_optimizer(
                 {"individuals_done": len(population), "individuals_total": len(population)},
             )
 
-        # Evolve
         elite_count = max(1, int(population_size * 0.2))
         elites = [ind for ind, _ in sorted(zip(population, fitness_vals), key=lambda x: x[1], reverse=True)[:elite_count]]
         new_pop = elites.copy()
@@ -780,8 +755,6 @@ def run_optimizer(
             child = mutate(child)
             new_pop.append(child)
         population = new_pop
-
-    # ── Build output ──────────────────────────────────────────────────────
 
     best_config = build_config(best_overall[0]) if best_overall[0] else ""
 
