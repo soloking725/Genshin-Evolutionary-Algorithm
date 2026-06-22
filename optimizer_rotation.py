@@ -39,52 +39,532 @@ for _name, _num, _ in COMPLEX_COMMANDS:
     COMPLEX_INFO.append((_name, _num, COMPLEX_OFFSET + _offset))
     _offset += _num
 
+# ── Rotation presets ──────────────────────────────────────────────────────
+
 FILLER_ACTION = {'ganyu': 'aim', 'neuvillette': 'charge'}
 
-
-# ── Rotation preset to tokens ─────────────────────────────────────────────
-
 def _filler(active):
-    return FILLER_ACTION.get(active, 'attack:1')
+    return FILLER_ACTION.get(active, 'attack')
 
+# ---------- Existing generic presets (unchanged) ----------
 
-def _preset_standard(team):
-    active = team[0]
-    seq = []
-    for slot, name in enumerate(team):
-        seq.append((slot, "burst"))
-        seq.append((slot, "skill"))
-    seq.append((0, _filler(active)))
-    return active, seq
+def _preset_standard(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  {active} {_filler(active)};\n'
+    return active, body
 
+def _preset_support_first(team, active=None):
+    main_dps, others = team[-1], team[:-1]
+    active = active or team[0]
+    body = ""
+    for n in others:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'  if .{main_dps}.burst.ready {{ {main_dps} burst; }}\n'
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  {active} {_filler(active)};\n'
+    return active, body
 
-def _preset_support_first(team):
-    active = team[0]
-    seq = []
-    for slot in range(1, 4):
-        seq.append((slot, "burst"))
-    seq.append((3, "burst"))
-    for slot in range(4):
-        seq.append((slot, "skill"))
-    seq.append((0, _filler(active)))
-    return active, seq
+def _preset_quickswap(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'  {active} {_filler(active)};\n'
+    return active, body
 
+def _preset_raiden_hyper(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'  if .{active}.name == "raiden" {{ {active} attack:15; }}\n'
+    body += f'  else {{ {active} attack; }}\n'
+    return active, body
 
-def _preset_quickswap(team):
-    active = team[0]
-    seq = []
-    for slot in range(4):
-        seq.append((slot, "skill"))
-    for slot in range(4):
-        seq.append((slot, "burst"))
-    seq.append((0, _filler(active)))
-    return active, seq
+def _preset_ganyu_aimed(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  if .{active}.name == "ganyu" {{ {active} aim; }}\n'
+    body += f'  else {{ {active} attack; }}\n'
+    return active, body
 
+def _preset_wriothesley(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  if .{active}.name == "wriothesley" {{ {active} charge; }}\n'
+    body += f'  else {{ {active} attack; }}\n'
+    return active, body
+
+def _preset_heavy_filler(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  {active} {_filler(active)},{_filler(active)},{_filler(active)};\n'
+    return active, body
+
+def _preset_burst_skill_weave(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  {active} {_filler(active)};\n'
+    return active, body
+
+def _preset_national(team, active=None):
+    main_dps, others = team[-1], team[:-1]
+    active = active or team[0]
+    body = ""
+    for n in others:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'  if .{main_dps}.burst.ready {{ {main_dps} burst; }}\n'
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  {active} {_filler(active)};\n'
+    return active, body
+
+def _preset_hyperbloom(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  {active} {_filler(active)}:6;\n'
+    return active, body
+
+def _preset_battery_first(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'  {active} {_filler(active)};\n'
+    return active, body
+
+def _preset_melt_ganyu(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'  if .{active}.name == "ganyu" {{ {active} aim; }}\n'
+    body += f'  else {{ {active} attack; }}\n'
+    return active, body
+
+def _preset_tanky(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  {active} {_filler(active)},{_filler(active)};\n'
+    return active, body
+
+def _preset_kinich(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+    for n in team:
+        body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  if .{active}.name == "kinich" {{ {active} attack:4; }}\n'
+    body += f'  else {{ {active} attack; }}\n'
+    return active, body
+
+# ---------- Helper fallback for specialised presets ----------
+
+def _generic_dps_fallback(team, active=None):
+    active = active or team[0]
+    body = "  for let i=0; i<4; i=i+1 {\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} attack:6;\n'
+    body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += "  }\n"
+    return active, body
+
+# ---------- New generic presets (now with (team, active=None) signature) ----------
+
+def _preset_generic_support_burst(team, active=None):
+    active = active or team[0]
+    body = ""
+    for n in team:
+        if n != active:
+            body += f'  if .{n}.burst.ready {{ {n} burst; }}\n'
+            body += f'  if .{n}.skill.ready {{ {n} skill; }}\n'
+    body += f'  if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'  if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += f'  {active} attack;\n'
+    return active, body
+
+def _preset_generic_charge_dps(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<4; i=i+1 {{\n"
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} attack;\n'
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += f'    delay(17);\n'
+    body += f'    {active} charge:8;\n'
+    body += f'    {active} charge; {active} charge[final=1]; {active} dash;\n'
+    body += f'    {active} charge:2;\n'
+    body += f'    delay(18);\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_bond_dps(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<4; i=i+1 {{\n"
+    body += f'    {active} skill; delay(11);\n'
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    {active} charge;\n'
+    body += f'    {active} attack:6;\n'
+    body += f'    {active} attack:6;\n'
+    body += f'    {active} attack:3;\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_aim_dps(team, active=None):
+    active = active or team[0]
+    body = f"  for let r=0; r<4; r=r+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += f'    {active} aim:4;\n'
+    body += f'    {active} aim[bullets=4];\n'
+    body += f'  }}\n'
+    body += f'  wait(82);\n'
+    return active, body
+
+def _preset_generic_hypercarry(team, active=None):
+    active = active or team[0]
+    body = f"  {active} skill;\n"
+    body += f"  for let i=0; i<6; i=i+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += f'    {active} attack:4; {active} dash;\n'
+    body += f'    {active} attack:4; {active} dash;\n'
+    body += f'    {active} attack:4; {active} dash;\n'
+    body += f'    {active} attack:4; {active} dash;\n'
+    body += f'    {active} attack:1;\n'
+    body += f'    {active} skill;\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_spread_dps(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<4; i=i+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} attack; {active} burst;\n'
+    body += f'    {active} swap; wait(14);\n'
+    body += f'    {active} attack:3; {active} charge;\n'
+    body += f'    {active} attack:2; {active} dash;\n'
+    body += f'    {active} attack:3; {active} charge;\n'
+    body += f'    {active} attack:3; {active} dash;\n'
+    body += f'    {active} attack:3; {active} charge;\n'
+    body += f'    {active} attack:3;\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_freeze(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<4; i=i+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} aim;\n'
+    body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += f'    {active} aim;\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} aim:5;\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_charge_loop(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<4; i=i+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} attack;\n'
+    body += f'    {active} charge; {active} skill; {active} charge; {active} burst;\n'
+    body += f'    {active} charge:2;\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_stance_dps(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<4; i=i+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    while .{active}.status.{active}-stance {{\n'
+    body += f'      if .{active}.resource >= 1 {{ {active} skill; }}\n'
+    body += f'      else {{ {active} attack; }}\n'
+    body += f'    }}\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_weave(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<6; i=i+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} attack;\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} attack;\n'
+    body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += f'    {active} attack:4; {active} dash;\n'
+    body += f'    {active} attack:4; {active} dash;\n'
+    body += f'    {active} attack:2;\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} attack;\n'
+    body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += f'    {active} attack:2;\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_nightsoul(team, active=None):
+    active = active or team[0]
+    # Fixed: use 'nightsoul' (not 'nationsoul')
+    body = f"  {active} skill;\n"
+    body += f"  for let c=0; c<5; c=c+1 {{\n"
+    body += f"    {active} attack[direction=1]:2;\n"
+    body += f"    while .{active}.nightsoul.points < 20 && .{active}.nightsoul.state {{\n"
+    body += f"      wait(1);\n"
+    body += f"    }}\n"
+    body += f"    if .{active}.nightsoul.state {{\n"
+    body += f"      {active} skill[hold=1];\n"
+    body += f"    }}\n"
+    body += f"  }}\n"
+    return active, body
+
+def _preset_generic_opener(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<4; i=i+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    {n} dash;\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} dash;\n'
+    body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
+    body += f'    {active} attack;\n'
+    body += f'  }}\n'
+    return active, body
+
+def _preset_generic_skirk_alt(team, active=None):
+    active = active or team[0]
+    body = f"  for let i=0; i<4; i=i+1 {{\n"
+    for n in team:
+        if n != active:
+            body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+            body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+    body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
+    body += f'    {active} attack:2; {active} burst;\n'
+    body += f'    {active} attack:5; {active} dash;\n'
+    body += f'    {active} attack:5; {active} dash;\n'
+    body += f'    {active} attack:5; {active} dash;\n'
+    body += f'    {active} attack:2; {active} charge; {active} dash;\n'
+    body += f'    {active} attack:5; {active} dash;\n'
+    body += f'    {active} attack:2;\n'
+    body += f'  }}\n'
+    return active, body
+
+# ---------- Specialised presets with fallback ----------
+
+def _preset_mualani_surf(team, active=None):
+    active = active or team[0]
+    if "mualani" in team:
+        body = "  for let i=0; i<4; i=i+1 {\n"
+        for n in team:
+            if n != "mualani":
+                body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+                body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += '    if .mualani.skill.ready { mualani skill; }\n'
+        body += '    mualani charge:3;\n'
+        body += '    if .mualani.burst.ready { mualani burst; }\n'
+        body += "  }\n"
+        return active, body
+    else:
+        return _generic_dps_fallback(team, active)
+
+def _preset_wanderer_flight(team, active=None):
+    active = active or team[0]
+    if "wanderer" in team:
+        body = "  for let i=0; i<4; i=i+1 {\n"
+        for n in team:
+            if n != "wanderer":
+                body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+                body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += '    if .wanderer.skill.ready { wanderer skill; }\n'
+        body += '    wanderer attack:6;\n'
+        body += '    wanderer charge;\n'
+        body += '    if .wanderer.burst.ready { wanderer burst; }\n'
+        body += "  }\n"
+        return active, body
+    else:
+        return _generic_dps_fallback(team, active)
+
+def _preset_skirk_weave(team, active=None):
+    active = active or team[0]
+    if "skirk" in team:
+        body = "  for let i=0; i<4; i=i+1 {\n"
+        for n in team:
+            if n != "skirk":
+                body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+                body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += '    if .skirk.skill.ready { skirk skill; }\n'
+        body += '    skirk attack:2; skirk charge; skirk dash;\n'
+        body += '    skirk attack:5; skirk dash;\n'
+        body += '    skirk attack:5; skirk dash;\n'
+        body += '    skirk attack:5; skirk dash;\n'
+        body += '    skirk attack:2; skirk charge; skirk dash;\n'
+        body += '    skirk attack:5; skirk dash;\n'
+        body += '    skirk attack:2;\n'
+        body += '    if .skirk.burst.ready { skirk burst; }\n'
+        body += "  }\n"
+        return active, body
+    else:
+        return _generic_dps_fallback(team, active)
+
+def _preset_kinich_dps(team, active=None):
+    active = active or team[0]
+    if "kinich" in team:
+        body = """
+  fn kinich_combo() {
+    kinich skill;
+    while .kinich.nightsoul.state {
+      if .kinich.nightsoul.points == 20 {
+        kinich skill[hold=1];
+        continue;
+      }
+      kinich attack;
+    }
+  }
+"""
+        body += "  for let i=0; i<4; i=i+1 {\n"
+        for n in team:
+            if n != "kinich":
+                body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+                body += f'    {n} dash;\n'
+                body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += "    kinich_combo();\n"
+        body += "    if .kinich.burst.ready { kinich burst; }\n"
+        for n in team:
+            if n != "kinich":
+                body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+                body += f'    {n} attack;\n'
+        body += "  }\n"
+        return active, body
+    else:
+        return _generic_dps_fallback(team, active)
+
+def _preset_mavuika_dps(team, active=None):
+    active = active or team[0]
+    if "mavuika" in team:
+        body = "  for let i=0; i<4; i=i+1 {\n"
+        for n in team:
+            if n != "mavuika":
+                body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
+                body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
+        body += '    if .mavuika.skill.ready { mavuika skill; }\n'
+        body += '    if .mavuika.burst.ready { mavuika burst; }\n'
+        body += '    mavuika charge:8;\n'
+        body += '    mavuika charge; mavuika charge[final=1]; mavuika dash;\n'
+        body += '    mavuika charge:2;\n'
+        body += "  }\n"
+        return active, body
+    else:
+        return _generic_dps_fallback(team, active)
+
+# ---------- Full list of presets ----------
 
 ROTATION_PRESETS = [
-    ("standard",      _preset_standard),
-    ("support_first", _preset_support_first),
-    ("quickswap",     _preset_quickswap),
+    ("standard",            _preset_standard),
+    ("support_first",       _preset_support_first),
+    ("quickswap",           _preset_quickswap),
+    ("raiden_hyper",        _preset_raiden_hyper),
+    ("ganyu_aimed",         _preset_ganyu_aimed),
+    ("wriothesley_charge",  _preset_wriothesley),
+    ("heavy_filler",        _preset_heavy_filler),
+    ("burst_skill_weave",   _preset_burst_skill_weave),
+    ("national",            _preset_national),
+    ("hyperbloom_driver",   _preset_hyperbloom),
+    ("battery_first",       _preset_battery_first),
+    ("melt_ganyu",          _preset_melt_ganyu),
+    ("tanky",               _preset_tanky),
+    ("kinich_skill",        _preset_kinich),
+    # New generic presets
+    ("generic_support_burst",   _preset_generic_support_burst),
+    ("generic_charge_dps",      _preset_generic_charge_dps),
+    ("generic_bond_dps",        _preset_generic_bond_dps),
+    ("generic_aim_dps",         _preset_generic_aim_dps),
+    ("generic_hypercarry",      _preset_generic_hypercarry),
+    ("generic_spread_dps",      _preset_generic_spread_dps),
+    ("generic_freeze",          _preset_generic_freeze),
+    ("generic_charge_loop",     _preset_generic_charge_loop),
+    ("generic_stance_dps",      _preset_generic_stance_dps),
+    ("generic_weave",           _preset_generic_weave),
+    ("generic_nightsoul",       _preset_generic_nightsoul),
+    ("generic_opener",          _preset_generic_opener),
+    ("generic_skirk_alt",       _preset_generic_skirk_alt),
+    # Specialised presets
+    ("mualani_surf",        _preset_mualani_surf),
+    ("wanderer_flight",     _preset_wanderer_flight),
+    ("skirk_weave",         _preset_skirk_weave),
+    ("kinich_dps",          _preset_kinich_dps),
+    ("mavuika_dps",         _preset_mavuika_dps),
 ]
 
 
