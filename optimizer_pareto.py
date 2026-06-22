@@ -480,7 +480,6 @@ def _preset_mavuika_dps(team, active=None):
 # ---------- Full list of presets ----------
 
 # (name, func, required_char_or_None)
-# required_char: if set, this preset is only offered to teams containing that character.
 ROTATION_PRESETS = [
     ("standard",            _preset_standard,               None),
     ("support_first",       _preset_support_first,          None),
@@ -494,7 +493,6 @@ ROTATION_PRESETS = [
     ("melt_ganyu",          _preset_melt_ganyu,             "ganyu"),
     ("tanky",               _preset_tanky,                  None),
     ("kinich_skill",        _preset_kinich,                 "kinich"),
-    # Generic presets
     ("generic_support_burst",   _preset_generic_support_burst,  None),
     ("generic_charge_dps",      _preset_generic_charge_dps,     None),
     ("generic_bond_dps",        _preset_generic_bond_dps,       None),
@@ -508,7 +506,6 @@ ROTATION_PRESETS = [
     ("generic_nightsoul",       _preset_generic_nightsoul,      None),
     ("generic_opener",          _preset_generic_opener,         None),
     ("generic_skirk_alt",       _preset_generic_skirk_alt,      None),
-    # Specialised presets (only evaluated when the key character is on the team)
     ("mualani_surf",        _preset_mualani_surf,           "mualani"),
     ("wanderer_flight",     _preset_wanderer_flight,        "wanderer"),
     ("skirk_weave",         _preset_skirk_weave,            "skirk"),
@@ -573,10 +570,8 @@ def run_optimizer(
     lock_set = set(lock_chars)
     ban_set = set(ban_chars)
     
-    # Apply bans
     all_chars -= ban_set
     
-    # For locked chars filtered out by min level, rebuild without level cap
     missing_locked = lock_set - all_chars - ban_set
     if missing_locked:
         full_configs, _, _ = build_character_configs(df, 0, traveler_override, traveler_default, start_energy)
@@ -616,7 +611,7 @@ def run_optimizer(
         try:
             result = run_gcsim(build_config(ind), gcsim_bin, sim_iterations, sim_duration)
             if "error" in result and result["error"]:
-                return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True}
+                return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True, "error": result["error"]}
             return result
         except Exception as e:
             return {"dps": 1.0, "max_hit": 1.0, "sd": 99999.0, "errored": True, "error": str(e)}
@@ -639,7 +634,6 @@ def run_optimizer(
             p1[1] if random.random() < 0.5 else p2[1],
         ]
         raw_chars = [p1[i] if random.random() < 0.5 else p2[i] for i in range(2, len(p1))]
-        # Keep each locked char exactly once
         seen_locked = {}
         for i, c in enumerate(raw_chars):
             if c in lock_set and c not in seen_locked:
@@ -650,7 +644,6 @@ def run_optimizer(
         for lc in missing_locked:
             if free_slots:
                 raw_chars[free_slots.pop()] = lc
-        # Deduplicate
         seen, available = set(), list(all_chars - set(raw_chars))
         random.shuffle(available)
         for i in range(4):
@@ -701,22 +694,25 @@ def run_optimizer(
         with ThreadPoolExecutor(max_workers=2) as pool:
             fut_map = {pool.submit(fitness, ind): i for i, ind in enumerate(population)}
             for fut in as_completed(fut_map):
-                scores[fut_map[fut]] = fut.result()
+                i = fut_map[fut]
+                scores[i] = fut.result()
                 done_count += 1
-                if progress_callback and done_count % 5 == 0:
-                    best_so_far = max(
-                        (s for s in scores if s is not None),
-                        key=lambda s: s["dps"],
-                        default={"dps": 0.0, "max_hit": 0.0, "sd": 0.0},
-                    )
+                # ✅ Callback after every individual
+                best_so_far = max(
+                    (s for s in scores if s is not None),
+                    key=lambda s: s["dps"],
+                    default={"dps": 0.0, "max_hit": 0.0, "sd": 0.0},
+                )
+                if progress_callback:
                     progress_callback(
                         gen + 1, generations, best_so_far,
                         [], [], configs,
                         {"individuals_done": done_count, "individuals_total": len(population)},
                     )
         
+        # ✅ Replace errored or timed‑out individuals
         for i, score in enumerate(scores):
-            if score.get("errored", False):
+            if score.get("errored", False) or score.get("error") == "timeout":
                 population[i] = random_team()
                 scores[i] = fitness(population[i])
 

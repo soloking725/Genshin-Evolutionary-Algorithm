@@ -69,7 +69,6 @@ def run_gcsim(config_str: str, gcsim_bin: str = GCSIM_PATH,
     out_path = cfg_path + ".json"
 
     try:
-        # Use Popen so we can force-kill
         proc = subprocess.Popen(
             [gcsim_bin, "-c", cfg_path, "-out", out_path],
             stdout=subprocess.PIPE,
@@ -77,20 +76,13 @@ def run_gcsim(config_str: str, gcsim_bin: str = GCSIM_PATH,
             text=True,
         )
         
-        # Wait up to 90 seconds
-        # Give GCSim 2× the sim duration plus a 30s buffer, minimum 30s.
-        # This lets long sims (e.g. 90s duration) complete while still killing
-        # truly hung configs (empty rotations, infinite loops) within a sane time.
-        timeout = max(30, duration * 2 + 30)
+        # ✅ Much tighter timeout: sim_duration + 10s buffer, min 15s
+        timeout = max(15, duration + 10)
         start = time.time()
         while proc.poll() is None:
             if time.time() - start > timeout:
-                # Force-kill the entire process tree
-                try:
-                    proc.kill()
-                    proc.wait(timeout=1)
-                except Exception:
-                    pass
+                proc.kill()
+                proc.wait(timeout=1)
                 return {"dps": 0.0, "max_hit": 0.0, "sd": 0.0, "error": "timeout"}
             time.sleep(0.5)
         

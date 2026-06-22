@@ -764,7 +764,7 @@ with st.sidebar:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# MAIN AREA (unchanged – same as your original)
+# MAIN AREA
 # ══════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
@@ -804,7 +804,12 @@ if st.session_state.opt_running:
             st.session_state.ind_total   = ind_total
             st.session_state.best_obj    = best_obj
             st.session_state.status      = "running"
-            st.session_state.status_msg  = f"Generation {gen_num} / {gen_total}"
+            # ✅ Include individual progress in status message
+            if ind_total > 0:
+                status_msg = f"Gen {gen_num}/{gen_total} · evaluating {ind_done}/{ind_total} individuals"
+            else:
+                status_msg = f"Gen {gen_num}/{gen_total}"
+            st.session_state.status_msg = status_msg
             if best_obj and best_obj.get("dps", 0) > 0:
                 st.session_state.dps_history.append({
                     "gen": gen_num,
