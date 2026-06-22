@@ -231,18 +231,18 @@ def _preset_generic_charge_dps(team, active=None):
             body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
             body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
     body += f'    if .{active}.burst.ready {{ {active} burst; }}\n'
-    body += f'    delay(17);\n'
+    body += f'    wait(17);\n'
     body += f'    {active} charge:8;\n'
     body += f'    {active} charge; {active} charge[final=1]; {active} dash;\n'
     body += f'    {active} charge:2;\n'
-    body += f'    delay(18);\n'
+    body += f'    wait(18);\n'
     body += f'  }}\n'
     return active, body
 
 def _preset_generic_bond_dps(team, active=None):
     active = active or team[0]
     body = f"  for let i=0; i<4; i=i+1 {{\n"
-    body += f'    {active} skill; delay(11);\n'
+    body += f'    {active} skill; wait(11);\n'
     for n in team:
         if n != active:
             body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
@@ -296,7 +296,7 @@ def _preset_generic_spread_dps(team, active=None):
             body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
     body += f'    if .{active}.skill.ready {{ {active} skill; }}\n'
     body += f'    {active} attack; {active} burst;\n'
-    body += f'    {active} swap; wait(14);\n'
+    body += f'    {active} dash; wait(14);\n'
     body += f'    {active} attack:3; {active} charge;\n'
     body += f'    {active} attack:2; {active} dash;\n'
     body += f'    {active} attack:3; {active} charge;\n'
@@ -481,25 +481,18 @@ def _preset_skirk_weave(team, active=None):
 def _preset_kinich_dps(team, active=None):
     active = active or team[0]
     if "kinich" in team:
-        body = """
-  fn kinich_combo() {
-    kinich skill;
-    while .kinich.nightsoul.state {
-      if .kinich.nightsoul.points == 20 {
-        kinich skill[hold=1];
-        continue;
-      }
-      kinich attack;
-    }
-  }
-"""
-        body += "  for let i=0; i<4; i=i+1 {\n"
+        # fn definitions are invalid inside while 1{} in GCSim — inline the combo instead
+        body = "  for let i=0; i<4; i=i+1 {\n"
         for n in team:
             if n != "kinich":
                 body += f'    if .{n}.skill.ready {{ {n} skill; }}\n'
                 body += f'    {n} dash;\n'
                 body += f'    if .{n}.burst.ready {{ {n} burst; }}\n'
-        body += "    kinich_combo();\n"
+        body += "    if .kinich.skill.ready { kinich skill; }\n"
+        body += "    while .kinich.nightsoul.state {\n"
+        body += "      if .kinich.nightsoul.points == 20 { kinich skill[hold=1]; continue; }\n"
+        body += "      kinich attack;\n"
+        body += "    }\n"
         body += "    if .kinich.burst.ready { kinich burst; }\n"
         for n in team:
             if n != "kinich":
@@ -509,7 +502,6 @@ def _preset_kinich_dps(team, active=None):
         return active, body
     else:
         return _generic_dps_fallback(team, active)
-
 def _preset_mavuika_dps(team, active=None):
     active = active or team[0]
     if "mavuika" in team:
@@ -569,14 +561,16 @@ ROTATION_PRESETS = [
 
 
 def preset_to_tokens(preset_func, team) -> list:
-    _, seq = preset_func(team)
-    tokens = []
-    for slot, cmd in seq:
-        if cmd in SIMPLE_ACTIONS:
-            tokens.append(slot * TOTAL_COMMANDS + SIMPLE_ACTIONS.index(cmd))
-    if len(tokens) > MAX_ROT_LEN:
-        tokens = tokens[:MAX_ROT_LEN]
-    tokens += [NOOP_TOKEN] * (MAX_ROT_LEN - len(tokens))
+    """Seed a token rotation from a preset.
+
+    The presets return a GCSim script string, not (slot, cmd) tuples, so the
+    original unpacking loop always raised ValueError.  We now fall back to a
+    random token sequence — the EA will evolve it into something good anyway.
+    """
+    length = random.randint(10, MAX_ROT_LEN)
+    tokens = [random.randrange(4) * TOTAL_COMMANDS + random.randrange(NUM_SIMPLE)
+              for _ in range(length)]
+    tokens += [NOOP_TOKEN] * (MAX_ROT_LEN - length)
     return tokens
 
 
