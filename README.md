@@ -2,7 +2,7 @@
 
 A free, open-source web app that fetches your Genshin Impact character data from **Enka Network** and uses an **evolutionary algorithm + GCSim** to find the strongest 4-person team from your own roster.
 
-🌐 **Live app:** *(paste your Streamlit Cloud URL here after deploying)*
+🌐 **Live app:** [*(paste your Streamlit Cloud URL here after deploying)*](https://genshin-evolutionary-algorithm.streamlit.app/)
 
 ---
 
