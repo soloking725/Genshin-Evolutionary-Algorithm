@@ -49,7 +49,7 @@ This gives you options: a consistent team for Spiral Abyss, a nuke team for burs
 1. **Fork this repo** on GitHub (or push it to your own repo).
 2. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
 3. Click **New app**, select your repo, set the main file to `app.py`.
-4. Click **Deploy**. That's it — Streamlit handles the rest.
+4. Click **Deploy**. 
 
 The app runs on a Linux container, so the GCSim binary downloads automatically on first use.
 
